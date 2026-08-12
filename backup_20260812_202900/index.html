@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>STEP 1: 쿠팡 마진 계산기 & 도매꾹 API 검증</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div>
+        <h1>
+          🚀 쿠팡 상품 발굴 & 마진 계산 앱
+          <span class="badge-step1">STEP 1: API & 마진 엔진 검증</span>
+        </h1>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">
+          도매꾹 Open API (getItemList v4.1 / getItemView v4.6) 파싱 및 마진 계산 엔진 기본형 검증
+        </p>
+      </div>
+      <div>
+        <span class="tag-mock">MOCK/SAMPLE 모드 지원</span>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tab-api">
+        📡 Tab 1: 도매꾹 Open API & JSON 모델 검증
+      </button>
+      <button class="tab-btn" data-tab="tab-calc">
+        🧮 Tab 2: 마진 계산 엔진 검증
+      </button>
+      <button class="tab-btn" data-tab="tab-config">
+        ⚙️ Tab 3: 동적 설정 (수수료/로켓그로스/월고정비)
+      </button>
+    </div>
+
+    <!-- TAB 1: API & JSON Models Tester -->
+    <div id="tab-api" class="tab-content active">
+      <div class="card">
+        <div class="card-title">
+          <span>도매꾹 Open API Key & 호출 테스트</span>
+        </div>
+        <div class="alert alert-info">
+          💡 <strong>API Key 미입력 시</strong>: 공식 명세 문서 기준 v4.1 & v4.6 실데이터 스펙 샘플이 자동 로드됩니다.<br/>
+          💡 <strong>API Key 입력 시</strong>: 도매꾹 Open API (<code>https://www.domeggook.com/ssl/api/</code>) 엔드포인트로 실제 Live 호출을 시도합니다.
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+          <div class="form-group" style="flex: 1; min-width: 280px; margin-bottom: 0;">
+            <label for="api-key-input">도매꾹 Open API Key (aid)</label>
+            <input type="password" id="api-key-input" class="form-control" placeholder="도매꾹 회원가입 후 발급받은 API 키 입력 (선택)" />
+          </div>
+          <div class="form-group" style="width: 150px; margin-bottom: 0;">
+            <label for="api-kw-input">검색어 (kw)</label>
+            <input type="text" id="api-kw-input" class="form-control" value="텀블러" />
+          </div>
+          <button id="btn-fetch-list" class="btn">
+            ▶ getItemList v4.1 실행
+          </button>
+          <button id="btn-fetch-view" class="btn btn-secondary">
+            🔍 getItemView v4.6 상세 실행
+          </button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Raw JSON Response -->
+        <div class="card">
+          <div class="card-title">
+            <span>📄 실제 API 원본 JSON 응답 (Raw JSON)</span>
+            <span id="json-status-tag" style="font-size: 0.75rem; color: var(--accent-blue);">v4.1 준비됨</span>
+          </div>
+          <pre id="raw-json-viewer">// API 테스트 실행 버튼을 누르면 원본 JSON이 표시됩니다.</pre>
+        </div>
+
+        <!-- Parsed Data Model -->
+        <div class="card">
+          <div class="card-title">
+            <span>📦 파싱된 DomeProductModel 객체</span>
+            <span style="font-size: 0.75rem; color: var(--accent-green);">필드 매핑 성공</span>
+          </div>
+          <pre id="parsed-model-viewer">// 파싱된 객체 정보가 표기됩니다.</pre>
+        </div>
+      </div>
+
+      <!-- Field Mapping Table -->
+      <div class="card">
+        <div class="card-title">
+          <span>📋 실제 API JSON 필드 vs 내장 데이터 모델 매핑 명세</span>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>도매꾹 API 필드 (v4.1/v4.6)</th>
+                <th>내부 데이터 모델 속성</th>
+                <th>데이터 타입</th>
+                <th>설명</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>list.item[].no</code> / <code>basis.no</code></td>
+                <td><code>itemNo</code></td>
+                <td>String</td>
+                <td>상품 고유 번호</td>
+              </tr>
+              <tr>
+                <td><code>list.item[].title</code> / <code>basis.title</code></td>
+                <td><code>title</code></td>
+                <td>String</td>
+                <td>도매 상품 제목</td>
+              </tr>
+              <tr>
+                <td><code>list.item[].price</code> / <code>basis.price</code></td>
+                <td><code>wholesalePrice</code></td>
+                <td>Number</td>
+                <td>도매 공급 가격 (원)</td>
+              </tr>
+              <tr>
+                <td><code>list.item[].deliPrice</code> / <code>ship.deliFee</code></td>
+                <td><code>wholesaleShippingFee</code></td>
+                <td>Number</td>
+                <td>기본 도매 배송비 (원)</td>
+              </tr>
+              <tr>
+                <td><code>list.item[].agencyFlag</code> / <code>deliv.agencyFlag</code></td>
+                <td><code>isDropShippingAvailable</code></td>
+                <td>Boolean</td>
+                <td>위탁배송(배송대행) 가능 여부 (Y/N)</td>
+              </tr>
+              <tr>
+                <td><code>list.item[].category</code> / <code>basis.category</code></td>
+                <td><code>categoryCode</code></td>
+                <td>String</td>
+                <td>도매꾹/쿠팡 매핑 카테고리 코드</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Margin Calculator Engine Tester -->
+    <div id="tab-calc" class="tab-content">
+      <div class="grid-2">
+        <!-- Input Parameters Form -->
+        <div class="card">
+          <div class="card-title">
+            <span>⚙️ 마진 계산 시뮬레이터 입력</span>
+          </div>
+
+          <div class="form-group">
+            <label for="calc-product-select">테스트 상품 선택 (도매꾹 데이터)</label>
+            <select id="calc-product-select" class="form-control">
+              <option value="0">[SAMPLE/MOCK] 대용량 보온보냉 텀블러 (도매가 7,800원 / 배송비 3,000원)</option>
+              <option value="1">[SAMPLE/MOCK] 초음파 미니 무선 가습기 (도매가 6,500원 / 배송비 3,000원)</option>
+              <option value="2">[SAMPLE/MOCK] C타입 케이블 (도매가 1,200원 / 배송비 2,500원)</option>
+              <option value="3">[SAMPLE/MOCK] 접이식 캠핑 체어 (도매가 18,500원 / 배송비 4,000원)</option>
+              <option value="4">[SAMPLE/MOCK] 피쉬콜라겐 30포 (도매가 11,000원 / 배송비 3,000원)</option>
+            </select>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label for="calc-wholesale-price">도매 공급가 (원)</label>
+              <input type="number" id="calc-wholesale-price" class="form-control" value="7800" />
+            </div>
+            <div class="form-group">
+              <label for="calc-wholesale-shipping">도매 배송비 (원)</label>
+              <input type="number" id="calc-wholesale-shipping" class="form-control" value="3000" />
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label for="calc-coupang-price">쿠팡 판매설정가 (원)</label>
+              <input type="number" id="calc-coupang-price" class="form-control" value="28900" />
+            </div>
+            <div class="form-group">
+              <label for="calc-category-select">쿠팡 카테고리 (수수료)</label>
+              <select id="calc-category-select" class="form-control">
+                <option value="1002">생활/주방용품 (명목 10.8% -> VAT 11.88%)</option>
+                <option value="1001">가전/디지털 (명목 8.0% -> VAT 8.8%)</option>
+                <option value="1003">뷰티/화장품 (명목 10.5% -> VAT 11.55%)</option>
+                <option value="1004">패션/의류 (명목 11.5% -> VAT 12.65%)</option>
+                <option value="1005">식품 (명목 11.0% -> VAT 12.1%)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="calc-shipping-type">배송 방식 (배송비 중복 계산 방지 구조)</label>
+            <select id="calc-shipping-type" class="form-control">
+              <option value="DROP_SHIPPING_FREE">위탁배송 (판매자 무료배송) - 도매 배송비 1회만 부담</option>
+              <option value="DROP_SHIPPING_PAID">위탁배송 (고객 배송비 수령) - 고객 결제액 수수료 제외 수령</option>
+              <option value="DIRECT_PURCHASE">사입배송 - 입고비 + 자사택배비 + 포장비 2회 부담</option>
+              <option value="ROCKET_GROWTH">로켓그로스 입고 - 입고비 + 입출고/배송비 + 보관료 부담</option>
+            </select>
+          </div>
+
+          <div id="extra-shipping-inputs" style="display: none; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+            <div class="form-group" id="group-customer-shipping">
+              <label for="calc-customer-shipping">고객 결제 배송비 (원)</label>
+              <input type="number" id="calc-customer-shipping" class="form-control" value="3000" />
+            </div>
+            <div class="form-group" id="group-seller-courier" style="display: none;">
+              <label for="calc-seller-courier">자사 택배비 (원)</label>
+              <input type="number" id="calc-seller-courier" class="form-control" value="3000" />
+            </div>
+          </div>
+
+          <button id="btn-recalculate" class="btn" style="width: 100%;">
+            🔄 마진 및 수익 재계산
+          </button>
+        </div>
+
+        <!-- Calculation Results Dashboard -->
+        <div class="card">
+          <div class="card-title">
+            <span>📊 마진 엔진 분석 결과</span>
+            <span id="tier-badge" class="badge-step1" style="background: rgba(34,197,94,0.2); color: var(--accent-green); border-color: var(--accent-green);">
+              판매 후보
+            </span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-box">
+              <div class="metric-label">기본 예상 순이익</div>
+              <div id="res-basic-profit" class="metric-value green">14,666 원</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-label">보수적 예상 순이익</div>
+              <div id="res-conservative-profit" class="metric-value blue">12,588 원</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-label">마진율</div>
+              <div id="res-margin-rate" class="metric-value yellow">50.75 %</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-label">ROI (투자수익률)</div>
+              <div id="res-roi" class="metric-value blue">135.80 %</div>
+            </div>
+          </div>
+
+          <!-- Overhead Exclusion Warning Box -->
+          <div class="alert alert-warning">
+            🛡️ <strong>원칙 준수 확인</strong>: 월 55,000원 쿠팡 서비스 이용료는 상품 1건 단위 마진에서 차감되지 않으며, 별도 월 고정비(Overhead)로 안전하게 분리 관리됩니다.
+          </div>
+
+          <div class="table-container">
+            <table>
+              <tbody>
+                <tr>
+                  <th>쿠팡 판매가</th>
+                  <td id="res-coupang-price">28,900 원</td>
+                </tr>
+                <tr>
+                  <th>쿠팡 수수료 (VAT 11.88% 포함)</th>
+                  <td id="res-coupang-fee">3,433 원</td>
+                </tr>
+                <tr>
+                  <th>실부담 배송비 (중복 계산 방지)</th>
+                  <td id="res-actual-shipping">3,000 원</td>
+                </tr>
+                <tr>
+                  <th>총 원가 (도매가 + 실배송비)</th>
+                  <td id="res-total-cost">10,800 원</td>
+                </tr>
+                <tr>
+                  <th>보수적 손실 차감 (반품 2% + 광고비)</th>
+                  <td id="res-conservative-loss">2,078 원</td>
+                </tr>
+                <tr>
+                  <th>10개 / 30개 판매 시 수익</th>
+                  <td id="res-bulk-profit">146,660 원 / 439,980 원</td>
+                </tr>
+                <tr>
+                  <th>하루 30만원 달성 필요 판매량</th>
+                  <td id="res-required-qty" style="color: var(--accent-blue); font-weight: 700;">하루 21 개</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Config Store -->
+    <div id="tab-config" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          <span>⚙️ 수수료 및 로켓그로스, 월 고정비 동적 설정 (ConfigStore)</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">
+          하드코딩을 방지하기 위해 모든 수수료 및 로켓그로스 비용, 월 고정비는 이 설정 화면에서 자유롭게 수정하여 저장할 수 있습니다.
+        </p>
+
+        <div class="grid-2">
+          <div>
+            <h3 style="font-size: 1rem; color: var(--accent-blue); margin-bottom: 12px;">1. 수수료 및 VAT 설정</h3>
+            <div class="form-group">
+              <label for="cfg-vat-toggle">수수료율 VAT 포함 여부</label>
+              <select id="cfg-vat-toggle" class="form-control">
+                <option value="false">VAT 10% 별도 부과 (설정 수수료율 x 1.1 적용)</option>
+                <option value="true">VAT 포함 수수료율 (표기 수수료율 그대로 적용)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="cfg-shipping-comm">쿠팡 결제 배송비 수수료율</label>
+              <input type="number" step="0.001" id="cfg-shipping-comm" class="form-control" value="0.0363" />
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-size: 1rem; color: var(--accent-blue); margin-bottom: 12px;">2. 월 고정비 (Monthly Overhead)</h3>
+            <div class="form-group">
+              <label for="cfg-coupang-service">쿠팡 월 서비스 이용료 (월 매출 100만원 초과시)</label>
+              <input type="number" id="cfg-coupang-service" class="form-control" value="55000" />
+            </div>
+            <div class="form-group">
+              <label for="cfg-target-daily">하루 목표 순수익 (원)</label>
+              <input type="number" id="cfg-target-daily" class="form-control" value="300000" />
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 12px;">
+          <button id="btn-save-config" class="btn">
+            💾 설정 변경사항 저장
+          </button>
+          <button id="btn-reset-config" class="btn btn-secondary">
+            🔄 기본값으로 초기화
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
