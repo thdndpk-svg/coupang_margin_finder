@@ -1,7 +1,8 @@
 /**
- * STEP 2.1.5: 도매꾹/도매매 Open API 복구 클라이언트 & Proxy 연결 (api.js)
- * - status: 'MOCK' | 'PROXY_NOT_CONFIGURED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR' | 'API_ERROR' | 'PARSE_ERROR'
- * - 프론트에 API Key를 절대로 노출하지 않으며 Proxy Server(http://localhost:3001) 경유
+ * STEP 2.2.0: 도매꾹/도매매 Open API 복구 클라이언트 & Proxy 연결 (api.js)
+ * - allowMockFallback 옵션 지원 (REAL_API 검증 시 MOCK 전환 전면 금지)
+ * - VITE_DOMEME_PROXY_URL 지원
+ * - CONNECTED_EMPTY 상태 지원 (실데이터 0건 수신 시 MOCK 혼합 금지)
  */
 
 import { DomeProductModel, MockDomeProductAdapter } from './models.js';
@@ -68,7 +69,11 @@ export class DomeApiClient {
   constructor() {
     this.mode = 'REAL_API'; // 기본 실행 모드: REAL_API
     this.status = 'CONNECTING';
-    this.proxyBaseUrl = 'http://localhost:3001';
+
+    const envProxyUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_DOMEME_PROXY_URL)
+      || (typeof process !== 'undefined' && process.env && process.env.VITE_DOMEME_PROXY_URL);
+
+    this.proxyBaseUrl = envProxyUrl || 'http://localhost:3001';
   }
 
   setMode(mode) {
@@ -78,7 +83,9 @@ export class DomeApiClient {
     }
   }
 
-  async getItemList(params = {}) {
+  async getItemList(params = {}, options = {}) {
+    const allowMockFallback = options.allowMockFallback !== undefined ? options.allowMockFallback : true;
+
     if (this.mode === 'MOCK') {
       const parsed = SAMPLE_MOCK_PRODUCTS.map(mockItem => {
         const v46Object = MockDomeProductAdapter.adapt(mockItem);
@@ -103,11 +110,17 @@ export class DomeApiClient {
 
       if (res.status === 401) {
         this.status = 'AUTH_ERROR';
+        if (!allowMockFallback) {
+          return { mode: 'REAL_API', status: 'AUTH_ERROR', statusLabel: 'API Key 인증 실패', raw: null, parsed: [] };
+        }
         return this.getFallbackMock('AUTH_ERROR', 'API Key 인증 필요 (서버 .env 환경변수 설정)');
       }
 
       if (!res.ok) {
         this.status = 'API_ERROR';
+        if (!allowMockFallback) {
+          return { mode: 'REAL_API', status: 'API_ERROR', statusLabel: `API Proxy 오류 [${res.status}]`, raw: null, parsed: [] };
+        }
         return this.getFallbackMock('API_ERROR', 'API Proxy 통신 오류');
       }
 
@@ -116,6 +129,9 @@ export class DomeApiClient {
 
       if (raw.errors || (dg.code && String(dg.code) !== '200')) {
         this.status = 'AUTH_ERROR';
+        if (!allowMockFallback) {
+          return { mode: 'REAL_API', status: 'AUTH_ERROR', statusLabel: `도매꾹 API 오류 [${raw.errors?.code || dg.code}]`, raw, parsed: [] };
+        }
         return this.getFallbackMock('AUTH_ERROR', `도매꾹 API 인증실패 [${raw.errors?.code || dg.code}]: ${raw.errors?.message || dg.message || ''}`);
       }
 
@@ -123,21 +139,17 @@ export class DomeApiClient {
       const itemsArray = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
 
       if (itemsArray.length === 0) {
-        return this.getFallbackMock('CONNECTED', 'REAL API 연결 성공 (데이터 MOCK 보완)');
+        this.status = 'CONNECTED_EMPTY';
+        return {
+          mode: 'REAL_API',
+          status: 'CONNECTED_EMPTY',
+          statusLabel: 'REAL API 연결 성공 (검색 결과 0건)',
+          raw,
+          parsed: []
+        };
       }
 
-      const parsed = itemsArray.map(item => {
-        const v46Obj = MockDomeProductAdapter.adapt({
-          no: item.no,
-          title: item.title,
-          price: item.price,
-          deliPrice: item.deliPrice,
-          category: item.category,
-          thumb: item.thumb,
-          agencyFlag: item.agencyFlag
-        });
-        return new DomeProductModel(v46Obj);
-      });
+      const parsed = DomeProductModel.parseRealItemList(itemsArray);
 
       this.status = 'CONNECTED';
       return {
@@ -148,13 +160,20 @@ export class DomeApiClient {
         parsed
       };
     } catch (e) {
-      console.warn('Proxy getItemList 호출 실패 (MOCK으로 Fallback):', e.message);
+      console.warn('Proxy getItemList 호출 실패:', e.message);
       this.status = 'PROXY_NOT_CONFIGURED';
+
+      if (!allowMockFallback) {
+        return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'Proxy 연결대기', raw: null, parsed: [] };
+      }
+
       return this.getFallbackMock('PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기 (MOCK 데이터 표시)');
     }
   }
 
-  async getItemView(itemNo) {
+  async getItemView(itemNo, options = {}) {
+    const allowMockFallback = options.allowMockFallback !== undefined ? options.allowMockFallback : true;
+
     if (this.mode === 'MOCK') {
       const mockItem = SAMPLE_MOCK_PRODUCTS.find(p => String(p.no) === String(itemNo)) || SAMPLE_MOCK_PRODUCTS[0];
       const v46Object = MockDomeProductAdapter.adapt({ ...mockItem, no: itemNo });
@@ -172,6 +191,9 @@ export class DomeApiClient {
 
       if (!res.ok) {
         this.status = 'API_ERROR';
+        if (!allowMockFallback) {
+          return { mode: 'REAL_API', status: 'API_ERROR', statusLabel: `API Proxy 오류 [${res.status}]`, raw: null, parsed: null };
+        }
         return this.getFallbackMockView(itemNo, 'API_ERROR', 'API 통신 오류');
       }
 
@@ -180,6 +202,9 @@ export class DomeApiClient {
 
       if (raw.errors || (dg.code && String(dg.code) !== '200')) {
         this.status = 'AUTH_ERROR';
+        if (!allowMockFallback) {
+          return { mode: 'REAL_API', status: 'AUTH_ERROR', statusLabel: `도매꾹 API 인증실패 [${raw.errors?.code || dg.code}]`, raw, parsed: null };
+        }
         return this.getFallbackMockView(itemNo, 'AUTH_ERROR', `도매꾹 API 인증실패 [${raw.errors?.code || dg.code}]`);
       }
 
@@ -194,8 +219,13 @@ export class DomeApiClient {
         parsed
       };
     } catch (e) {
-      console.warn('Proxy getItemView 호출 실패 (MOCK으로 Fallback):', e.message);
+      console.warn('Proxy getItemView 호출 실패:', e.message);
       this.status = 'PROXY_NOT_CONFIGURED';
+
+      if (!allowMockFallback) {
+        return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'Proxy 연결대기', raw: null, parsed: null };
+      }
+
       return this.getFallbackMockView(itemNo, 'PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기');
     }
   }

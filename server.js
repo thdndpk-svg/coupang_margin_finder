@@ -19,23 +19,38 @@ try {
   // ignore
 }
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const DOME_ENDPOINT = 'https://www.domeggook.com/ssl/api/';
+const ALLOWED_ORIGINS = [
+  'https://thdndpk-svg.github.io',
+  'http://localhost:5173',
+  'http://localhost:3001',
+  'http://127.0.0.1:5173'
+];
 
 function makeHttpsRequest(targetUrl) {
   return new Promise((resolve, reject) => {
-    https.get(targetUrl, (res) => {
+    const req = https.get(targetUrl, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
-    }).on('error', err => reject(err));
+    });
+    req.on('error', err => reject(err));
+    req.setTimeout(8000, () => {
+      req.destroy();
+      reject(new Error('UPSTREAM_TIMEOUT'));
+    });
   });
 }
 
 const server = http.createServer(async (req, res) => {
-  // CORS 헤더 설정
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://thdndpk-svg.github.io');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -52,6 +67,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/domeme/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
+      proxyType: 'LOCAL_PROXY',
       status: apiKey ? 'PROXY_READY' : 'PROXY_NOT_CONFIGURED',
       hasKey: Boolean(apiKey)
     }));
@@ -75,12 +91,39 @@ const server = http.createServer(async (req, res) => {
     const targetUrl = `${DOME_ENDPOINT}?ver=4.6&mode=getItemView&aid=${encodeURIComponent(apiKey)}&om=json&no=${itemNo}`;
 
     try {
-      const response = await makeHttpsRequest(targetUrl);
+      const upstream = await makeHttpsRequest(targetUrl);
+      if (upstream.status !== 200) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'UPSTREAM_ERROR', message: `도매꾹 HTTP ${upstream.status}` }));
+        return;
+      }
+
+      let parsedBody;
+      try {
+        parsedBody = JSON.parse(upstream.body);
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'PARSE_ERROR', message: '도매꾹 응답 JSON 파싱 실패' }));
+        return;
+      }
+
+      const dg = parsedBody.domeggook || parsedBody;
+      if (parsedBody.errors || (dg.code && String(dg.code) !== '200')) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'AUTH_ERROR',
+          message: parsedBody.errors?.message || dg.message || '도매꾹 API 인증실패',
+          raw: parsedBody
+        }));
+        return;
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(response.body);
+      res.end(JSON.stringify(parsedBody));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'API_ERROR', message: err.message }));
+      const errStatus = err.message === 'UPSTREAM_TIMEOUT' ? 'TIMEOUT' : 'UPSTREAM_ERROR';
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: errStatus, message: err.message }));
     }
     return;
   }
@@ -92,12 +135,39 @@ const server = http.createServer(async (req, res) => {
     const targetUrl = `${DOME_ENDPOINT}?ver=4.1&mode=getItemList&aid=${encodeURIComponent(apiKey)}&om=json&kw=${encodeURIComponent(kw)}&sz=${sz}`;
 
     try {
-      const response = await makeHttpsRequest(targetUrl);
+      const upstream = await makeHttpsRequest(targetUrl);
+      if (upstream.status !== 200) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'UPSTREAM_ERROR', message: `도매꾹 HTTP ${upstream.status}` }));
+        return;
+      }
+
+      let parsedBody;
+      try {
+        parsedBody = JSON.parse(upstream.body);
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'PARSE_ERROR', message: '도매꾹 응답 JSON 파싱 실패' }));
+        return;
+      }
+
+      const dg = parsedBody.domeggook || parsedBody;
+      if (parsedBody.errors || (dg.code && String(dg.code) !== '200')) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'AUTH_ERROR',
+          message: parsedBody.errors?.message || dg.message || '도매꾹 API 인증실패',
+          raw: parsedBody
+        }));
+        return;
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(response.body);
+      res.end(JSON.stringify(parsedBody));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'API_ERROR', message: err.message }));
+      const errStatus = err.message === 'UPSTREAM_TIMEOUT' ? 'TIMEOUT' : 'UPSTREAM_ERROR';
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: errStatus, message: err.message }));
     }
     return;
   }
@@ -107,5 +177,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[REAL API Proxy Server] Listening on http://localhost:${PORT}`);
+  console.log(`[LOCAL_PROXY Server] Listening on http://localhost:${PORT}`);
 });

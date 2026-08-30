@@ -1,6 +1,6 @@
 /**
- * STEP 2.1.5: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
- * - itemNo, title, status 등 basis 및 raw fallback 유연 적용
+ * STEP 2.2.0: 도매꾹/도매매 REAL API & getItemView v4.6 공식 파서 (models.js)
+ * - MockDomeProductAdapter는 MOCK 모드에서만 한정 사용하며 REAL API 파싱 경로에서 사용 금지
  */
 
 export class DomeProductModel {
@@ -165,6 +165,53 @@ export class DomeProductModel {
     } else {
       return { isVacation: false, statusLabel: '휴가예정', details: { startDate, endDate, days } };
     }
+  }
+
+  static parseRealItemList(rawItems = []) {
+    const itemsArray = Array.isArray(rawItems) ? rawItems : (rawItems ? [rawItems] : []);
+    return itemsArray.map(item => {
+      const isSupplyY = item.agencyFlag === 'Y' || item.channel?.supply === true;
+      const isSupplyN = item.agencyFlag === 'N' || item.channel?.supply === false;
+      const channelSupply = isSupplyY ? true : (isSupplyN ? false : undefined);
+
+      return new DomeProductModel({
+        basis: {
+          no: item.no || item.itemNo,
+          title: item.title,
+          status: item.status || '판매중'
+        },
+        price: {
+          supply: item.price,
+          resale: {
+            minumum: item.minResalePrice || item.price?.resale?.minumum,
+            Recommand: item.recommendResalePrice || item.price?.resale?.Recommand
+          }
+        },
+        deli: {
+          supply: {
+            fee: item.deliPrice !== undefined ? item.deliPrice : item.deli?.supply?.fee,
+            type: item.deli?.supply?.type || '고정배송비'
+          }
+        },
+        qty: {
+          inventory: item.qty?.inventory,
+          supplyUnit: item.qty?.supplyUnit || 1
+        },
+        seller: {
+          rank: item.seller?.rank,
+          vacation: item.seller?.vacation
+        },
+        channel: {
+          supply: channelSupply
+        },
+        thumb: {
+          large: item.thumb || item.imageUrl
+        },
+        category: {
+          current: item.category
+        }
+      });
+    });
   }
 
   constructor(rawData = {}) {
