@@ -1,6 +1,7 @@
 /**
- * STEP 2.1.4: 도매꾹/도매매 Open API 클라이언트 & MOCK 데이터 (api.js)
- * - status: 'MOCK' | 'PROXY_NOT_CONFIGURED' | 'READY' | 'CONNECTED' | 'ERROR'
+ * STEP 2.1.5: 도매꾹/도매매 Open API 복구 클라이언트 & Proxy 연결 (api.js)
+ * - status: 'MOCK' | 'PROXY_NOT_CONFIGURED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR' | 'API_ERROR' | 'PARSE_ERROR'
+ * - 프론트에 API Key를 절대로 노출하지 않으며 Proxy Server(http://localhost:3001) 경유
  */
 
 import { DomeProductModel, MockDomeProductAdapter } from './models.js';
@@ -60,143 +61,24 @@ export const SAMPLE_MOCK_PRODUCTS = [
     thumb: 'https://via.placeholder.com/80/8b5cf6/ffffff?text=Holder',
     agencyFlag: 'Y',
     defaultCoupangPrice: 11900
-  },
-  {
-    isMock: true,
-    no: '100006',
-    title: '[MOCK] 저소음 탁상용 탁상용 USB 미니 선풍기',
-    price: 6500,
-    deliPrice: 3000,
-    category: '1001',
-    thumb: 'https://via.placeholder.com/80/06b6d4/ffffff?text=Fan',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 15900
-  },
-  {
-    isMock: true,
-    no: '100007',
-    title: '[MOCK] 자동 압축 파우치 여행용 옷정리 백 4종',
-    price: 8900,
-    deliPrice: 3000,
-    category: '1002',
-    thumb: 'https://via.placeholder.com/80/ec4899/ffffff?text=Pouch',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 19800
-  },
-  {
-    isMock: true,
-    no: '100008',
-    title: '[MOCK] LED 무드등 경량 보조배터리 10000mAh',
-    price: 9800,
-    deliPrice: 2500,
-    category: '1001',
-    thumb: 'https://via.placeholder.com/80/84cc16/ffffff?text=Battery',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 22900
-  },
-  {
-    isMock: true,
-    no: '100009',
-    title: '[MOCK] 304 스텐 휴대용 수저 세트 + 케이스',
-    price: 2400,
-    deliPrice: 2500,
-    category: '1002',
-    thumb: 'https://via.placeholder.com/80/f97316/ffffff?text=Spoon',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 7900
-  },
-  {
-    isMock: true,
-    no: '100010',
-    title: '[MOCK] 인체공학 메모리폼 목베개 경추 베개',
-    price: 11200,
-    deliPrice: 3000,
-    category: '1002',
-    thumb: 'https://via.placeholder.com/80/14b8a6/ffffff?text=Pillow',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 26900
-  },
-  {
-    isMock: true,
-    no: '100011',
-    title: '[MOCK] 극세사 스팀 청소기 밀대 패드 3매',
-    price: 4500,
-    deliPrice: 2500,
-    category: '1002',
-    thumb: 'https://via.placeholder.com/80/6366f1/ffffff?text=MopPad',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 12900
-  },
-  {
-    isMock: true,
-    no: '100012',
-    title: '[MOCK] 실리콘 접이식 드립커피 필터 드리퍼',
-    price: 2800,
-    deliPrice: 2500,
-    category: '1002',
-    thumb: 'https://via.placeholder.com/80/a855f7/ffffff?text=Dripper',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 8900
-  },
-  {
-    isMock: true,
-    no: '100013',
-    title: '[MOCK] 방수 스포티 무선 이어폰 헤드셋',
-    price: 22000,
-    deliPrice: 3000,
-    category: '1001',
-    thumb: 'https://via.placeholder.com/80/3b82f6/ffffff?text=SportEar',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 48900
-  },
-  {
-    isMock: true,
-    no: '100014',
-    title: '[MOCK] 다기능 홈 트레이닝 푸쉬업 바 세트',
-    price: 7500,
-    deliPrice: 3000,
-    category: '1006',
-    thumb: 'https://via.placeholder.com/80/10b981/ffffff?text=Pushup',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 18900
-  },
-  {
-    isMock: true,
-    no: '100015',
-    title: '[MOCK] 반려동물 자동 급수기 2.5L 정수 필터',
-    price: 14800,
-    deliPrice: 3000,
-    category: '1007',
-    thumb: 'https://via.placeholder.com/80/f59e0b/ffffff?text=PetFountain',
-    agencyFlag: 'Y',
-    defaultCoupangPrice: 32900
   }
 ];
 
 export class DomeApiClient {
   constructor() {
-    this.apiKey = null;
-    this.proxyUrl = null;
-    this.mode = 'MOCK';
-    this.status = 'MOCK';
+    this.mode = 'REAL_API'; // 기본 실행 모드: REAL_API
+    this.status = 'CONNECTING';
+    this.proxyBaseUrl = 'http://localhost:3001';
   }
 
-  setApiKey(key, proxyUrl = null) {
-    this.apiKey = key;
-    this.proxyUrl = proxyUrl;
-    if (key && proxyUrl) {
-      this.mode = 'REAL_API';
-      this.status = 'CONNECTED';
-    } else if (key || proxyUrl) {
-      this.mode = 'REAL_API';
-      this.status = 'PROXY_NOT_CONFIGURED';
-    } else {
-      this.mode = 'MOCK';
+  setMode(mode) {
+    this.mode = mode;
+    if (mode === 'MOCK') {
       this.status = 'MOCK';
     }
   }
 
-  async getItemList() {
+  async getItemList(params = {}) {
     if (this.mode === 'MOCK') {
       const parsed = SAMPLE_MOCK_PRODUCTS.map(mockItem => {
         const v46Object = MockDomeProductAdapter.adapt(mockItem);
@@ -206,56 +88,142 @@ export class DomeApiClient {
       return {
         mode: 'MOCK',
         status: 'MOCK',
+        statusLabel: 'MOCK 데이터 표시 중',
         raw: SAMPLE_MOCK_PRODUCTS,
         parsed
       };
     }
 
-    if (this.status === 'PROXY_NOT_CONFIGURED') {
+    const kw = params.kw || '텀블러';
+    const sz = params.sz || '10';
+
+    try {
+      this.status = 'CONNECTING';
+      const res = await fetch(`${this.proxyBaseUrl}/api/domeme/items?kw=${encodeURIComponent(kw)}&sz=${sz}`);
+
+      if (res.status === 401) {
+        this.status = 'AUTH_ERROR';
+        return this.getFallbackMock('AUTH_ERROR', 'API Key 인증 필요 (서버 .env 환경변수 설정)');
+      }
+
+      if (!res.ok) {
+        this.status = 'API_ERROR';
+        return this.getFallbackMock('API_ERROR', 'API Proxy 통신 오류');
+      }
+
+      const raw = await res.json();
+      const dg = raw.domeggook || raw;
+
+      if (raw.errors || (dg.code && String(dg.code) !== '200')) {
+        this.status = 'AUTH_ERROR';
+        return this.getFallbackMock('AUTH_ERROR', `도매꾹 API 인증실패 [${raw.errors?.code || dg.code}]: ${raw.errors?.message || dg.message || ''}`);
+      }
+
+      const itemsRaw = dg.list?.item || dg.items || [];
+      const itemsArray = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? [itemsRaw] : []);
+
+      if (itemsArray.length === 0) {
+        return this.getFallbackMock('CONNECTED', 'REAL API 연결 성공 (데이터 MOCK 보완)');
+      }
+
+      const parsed = itemsArray.map(item => {
+        const v46Obj = MockDomeProductAdapter.adapt({
+          no: item.no,
+          title: item.title,
+          price: item.price,
+          deliPrice: item.deliPrice,
+          category: item.category,
+          thumb: item.thumb,
+          agencyFlag: item.agencyFlag
+        });
+        return new DomeProductModel(v46Obj);
+      });
+
+      this.status = 'CONNECTED';
       return {
         mode: 'REAL_API',
-        status: 'PROXY_NOT_CONFIGURED',
-        statusLabel: 'API Key / Proxy 연결대기',
-        raw: [],
-        parsed: []
+        status: 'CONNECTED',
+        statusLabel: 'REAL API 연결됨',
+        raw,
+        parsed
       };
+    } catch (e) {
+      console.warn('Proxy getItemList 호출 실패 (MOCK으로 Fallback):', e.message);
+      this.status = 'PROXY_NOT_CONFIGURED';
+      return this.getFallbackMock('PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기 (MOCK 데이터 표시)');
     }
-
-    return {
-      mode: 'REAL_API',
-      status: 'CONNECTED',
-      raw: [],
-      parsed: []
-    };
   }
 
   async getItemView(itemNo) {
     if (this.mode === 'MOCK') {
-      const mockItem = SAMPLE_MOCK_PRODUCTS.find(p => p.no === String(itemNo)) || SAMPLE_MOCK_PRODUCTS[0];
-      const v46Object = MockDomeProductAdapter.adapt(mockItem);
+      const mockItem = SAMPLE_MOCK_PRODUCTS.find(p => String(p.no) === String(itemNo)) || SAMPLE_MOCK_PRODUCTS[0];
+      const v46Object = MockDomeProductAdapter.adapt({ ...mockItem, no: itemNo });
       return {
         mode: 'MOCK',
         status: 'MOCK',
-        raw: mockItem,
+        raw: v46Object,
         parsed: new DomeProductModel(v46Object)
       };
     }
 
-    if (this.status === 'PROXY_NOT_CONFIGURED') {
+    try {
+      this.status = 'CONNECTING';
+      const res = await fetch(`${this.proxyBaseUrl}/api/domeme/items/${itemNo}`);
+
+      if (!res.ok) {
+        this.status = 'API_ERROR';
+        return this.getFallbackMockView(itemNo, 'API_ERROR', 'API 통신 오류');
+      }
+
+      const raw = await res.json();
+      const dg = raw.domeggook || raw;
+
+      if (raw.errors || (dg.code && String(dg.code) !== '200')) {
+        this.status = 'AUTH_ERROR';
+        return this.getFallbackMockView(itemNo, 'AUTH_ERROR', `도매꾹 API 인증실패 [${raw.errors?.code || dg.code}]`);
+      }
+
+      const parsed = new DomeProductModel(dg);
+      this.status = 'CONNECTED';
+
       return {
         mode: 'REAL_API',
-        status: 'PROXY_NOT_CONFIGURED',
-        statusLabel: 'API Key / Proxy 연결대기',
-        raw: null,
-        parsed: null
+        status: 'CONNECTED',
+        statusLabel: 'REAL API 연결됨',
+        raw: dg,
+        parsed
       };
+    } catch (e) {
+      console.warn('Proxy getItemView 호출 실패 (MOCK으로 Fallback):', e.message);
+      this.status = 'PROXY_NOT_CONFIGURED';
+      return this.getFallbackMockView(itemNo, 'PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기');
     }
+  }
+
+  getFallbackMock(status, statusLabel) {
+    const parsed = SAMPLE_MOCK_PRODUCTS.map(mockItem => {
+      const v46Object = MockDomeProductAdapter.adapt(mockItem);
+      return new DomeProductModel(v46Object);
+    });
 
     return {
-      mode: 'REAL_API',
-      status: 'CONNECTED',
-      raw: null,
-      parsed: null
+      mode: 'MOCK_FALLBACK',
+      status,
+      statusLabel,
+      raw: SAMPLE_MOCK_PRODUCTS,
+      parsed
+    };
+  }
+
+  getFallbackMockView(itemNo, status, statusLabel) {
+    const mockItem = SAMPLE_MOCK_PRODUCTS.find(p => String(p.no) === String(itemNo)) || SAMPLE_MOCK_PRODUCTS[0];
+    const v46Object = MockDomeProductAdapter.adapt({ ...mockItem, no: itemNo });
+    return {
+      mode: 'MOCK_FALLBACK',
+      status,
+      statusLabel,
+      raw: v46Object,
+      parsed: new DomeProductModel(v46Object)
     };
   }
 }

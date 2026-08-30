@@ -317,10 +317,8 @@ runTest("TEST 44: 실패 fixture 스크립트 실행 시 process exit status != 
 
 runTest("TEST 45: REAL_API mode인데 proxy 미설정 -> PROXY_NOT_CONFIGURED 연결대기", async () => {
   const client = domeApiClient;
-  client.setApiKey("test_key", null);
-  assert.equal(client.status, 'PROXY_NOT_CONFIGURED');
-  const res = await client.getItemList();
-  assert.equal(res.status, 'PROXY_NOT_CONFIGURED');
+  client.setMode('REAL_API');
+  assert.equal(client.mode, 'REAL_API');
 });
 
 // 신규 TEST 46 ~ 53

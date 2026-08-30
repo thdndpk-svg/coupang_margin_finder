@@ -106,7 +106,25 @@ function initTabs() {
 /* 2. Load Products & Initialize State                                        */
 /* -------------------------------------------------------------------------- */
 async function loadProducts() {
-  const res = await domeApiClient.getItemList();
+  const badgeEl = typeof document !== 'undefined' ? document.getElementById('api-status-badge') : null;
+  const res = await domeApiClient.getItemList({ kw: '텀블러', sz: '15' });
+
+  if (badgeEl) {
+    if (res.status === 'CONNECTED') {
+      badgeEl.textContent = 'REAL API 연결됨 (Proxy)';
+      badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+      badgeEl.style.color = 'var(--accent-green)';
+    } else if (res.status === 'AUTH_ERROR') {
+      badgeEl.textContent = 'API Key 인증 필요 (MOCK)';
+      badgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      badgeEl.style.color = 'var(--accent-red)';
+    } else {
+      badgeEl.textContent = 'API Key / Proxy 연결대기 (MOCK)';
+      badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
+      badgeEl.style.color = 'var(--accent-yellow)';
+    }
+  }
+
   state.products = res.parsed.map(item => {
     const defaultCoupangPrice = item.isMock ? item.userCoupangPrice : null;
     return {

@@ -1,8 +1,6 @@
 /**
- * STEP 2.1.4: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
- * - MOCK 수수료 상태 TEMPORARY_ASSUMPTION 설정
- * - seller.vacation 객체 (startDate, endDate, days) 파싱 및 날짜 판정
- * - 카테고리 분리 (supplierCategory vs coupangCategory)
+ * STEP 2.1.5: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
+ * - itemNo, title, status 등 basis 및 raw fallback 유연 적용
  */
 
 export class DomeProductModel {
@@ -102,7 +100,7 @@ export class DomeProductModel {
 
     const payType = deli.pay;
     const deliType = deli.type;
-    const rawFee = deli.fee;
+    const rawFee = deli.fee !== undefined ? deli.fee : rawData.deliPrice;
     const tbl = deli.tbl;
 
     if (deliType === '금액비노출') {
@@ -135,7 +133,7 @@ export class DomeProductModel {
       }
     }
 
-    if ((deliType === '고정배송비' || deliType === '고정') && rawFee !== undefined && rawFee !== null && !isNaN(Number(rawFee))) {
+    if ((deliType === '고정배송비' || deliType === '고정' || !deliType) && rawFee !== undefined && rawFee !== null && !isNaN(Number(rawFee))) {
       return { fee: Number(rawFee), type: '고정배송비', status: '확인됨', isExact: true };
     }
 
@@ -173,14 +171,15 @@ export class DomeProductModel {
     this.raw = rawData;
     this.isMock = Boolean(rawData.isMock);
 
-    const basis = rawData.basis || {};
-    this.itemNo = String(basis.no || rawData.itemNo || '');
-    this.title = basis.title !== undefined ? String(basis.title) : null;
-    this.status = basis.status !== undefined && basis.status !== null ? String(basis.status) : null;
+    const dg = rawData.domeggook || rawData;
+    const basis = dg.basis || (rawData.basis !== undefined ? rawData.basis : rawData);
+    this.itemNo = String(basis.no || rawData.itemNo || rawData.no || '');
+    this.title = basis.title !== undefined ? String(basis.title) : (rawData.title !== undefined ? String(rawData.title) : null);
+    this.status = basis.status !== undefined && basis.status !== null ? String(basis.status) : (rawData.status !== undefined ? String(rawData.status) : null);
     this.statusLabel = this.status ? this.status : '판매상태 확인필요';
 
-    const priceObj = rawData.price || {};
-    const parsedSupply = DomeProductModel.parseSupplyPrice(priceObj.supply);
+    const priceObj = dg.price || rawData.price || {};
+    const parsedSupply = DomeProductModel.parseSupplyPrice(priceObj.supply !== undefined ? priceObj.supply : rawData.price);
 
     this.wholesalePrice = parsedSupply.unitPrice;
     this.pricingType = parsedSupply.pricingType;
@@ -188,11 +187,11 @@ export class DomeProductModel {
 
     this.minResalePrice = priceObj.resale?.minumum !== undefined && priceObj.resale?.minumum !== null
       ? Number(priceObj.resale.minumum)
-      : 0;
+      : (rawData.minResalePrice ? Number(rawData.minResalePrice) : 0);
 
     this.recommendResalePrice = priceObj.resale?.Recommand !== undefined && priceObj.resale?.Recommand !== null
       ? Number(priceObj.resale.Recommand)
-      : 0;
+      : (rawData.recommendResalePrice ? Number(rawData.recommendResalePrice) : 0);
 
     const parsedShipping = DomeProductModel.parseShippingFee(rawData);
     this.wholesaleShippingFee = parsedShipping.fee;
@@ -202,12 +201,12 @@ export class DomeProductModel {
     const qtyObj = rawData.qty || {};
     this.inventoryQty = qtyObj.inventory !== undefined && qtyObj.inventory !== null
       ? Number(qtyObj.inventory)
-      : null;
+      : (rawData.mockInventory !== undefined ? Number(rawData.mockInventory) : (this.isMock ? 999 : null));
     this.inventoryStatusLabel = this.inventoryQty !== null ? `${this.inventoryQty.toLocaleString()}개` : '재고 확인 필요';
 
     this.supplyUnit = qtyObj.supplyUnit !== undefined && qtyObj.supplyUnit !== null
       ? Number(qtyObj.supplyUnit)
-      : null;
+      : (rawData.supplyUnit ? Number(rawData.supplyUnit) : 1);
 
     if (this.supplyUnit === 1) {
       this.supplyUnitStatus = '단건공급';
@@ -220,15 +219,15 @@ export class DomeProductModel {
     const sellerObj = rawData.seller || {};
     this.sellerRank = sellerObj.rank !== undefined && sellerObj.rank !== null
       ? Number(sellerObj.rank)
-      : null;
+      : (this.isMock ? 1 : null);
     this.sellerRankLabel = this.sellerRank !== null ? `${this.sellerRank}등급` : '공급사 등급 확인필요';
 
-    const parsedVacation = DomeProductModel.parseSellerVacation(sellerObj.vacation);
+    const parsedVacation = DomeProductModel.parseSellerVacation(sellerObj.vacation || rawData.sellerVacation);
     this.sellerVacation = parsedVacation.isVacation;
     this.sellerVacationStatus = parsedVacation.statusLabel;
 
     const channelObj = rawData.channel || {};
-    const channelSupply = channelObj.supply;
+    const channelSupply = channelObj.supply !== undefined ? channelObj.supply : (rawData.agencyFlag === 'Y' ? true : (rawData.agencyFlag === 'N' ? false : undefined));
 
     if (channelSupply === true) {
       this.dropShippingStatus = '위탁 가능';
@@ -243,7 +242,7 @@ export class DomeProductModel {
     this.isDropShippingAvailable = this.dropShippingStatus === '위탁 가능';
 
     const descObj = rawData.desc || {};
-    const licenseUsable = descObj.license?.usable;
+    const licenseUsable = descObj.license?.usable !== undefined ? descObj.license?.usable : rawData.licenseUsable;
     if (licenseUsable === true) {
       this.imageLicenseStatus = '사용가능';
     } else if (licenseUsable === false) {
@@ -253,10 +252,10 @@ export class DomeProductModel {
     }
 
     const thumbObj = rawData.thumb || {};
-    this.imageUrl = thumbObj.large || thumbObj.original || 'https://via.placeholder.com/80';
+    this.imageUrl = thumbObj.large || thumbObj.original || rawData.thumb || 'https://via.placeholder.com/80';
     this.itemUrl = this.itemNo ? `https://domeggook.com/${this.itemNo}` : '#';
 
-    const categoryCurrent = rawData.category?.current;
+    const categoryCurrent = rawData.category?.current || rawData.category;
     if (categoryCurrent && typeof categoryCurrent === 'object') {
       this.supplierCategoryCode = String(categoryCurrent.code || '');
       this.supplierCategoryName = String(categoryCurrent.name || '');
@@ -271,12 +270,15 @@ export class DomeProductModel {
       this.supplierCategoryDepth = null;
     }
 
-    this.coupangCategoryCode = rawData.coupangCategoryCode || null;
+    this.coupangCategoryCode = rawData.coupangCategoryCode || (this.isMock ? this.supplierCategoryCode : null);
     this.coupangFeeRate = rawData.coupangFeeRate !== undefined ? rawData.coupangFeeRate : null;
     this.coupangFeeStatus = rawData.coupangFeeStatus || (this.isMock ? 'TEMPORARY_ASSUMPTION' : 'UNCONFIRMED');
 
     if (rawData.userCoupangPrice !== undefined && rawData.userCoupangPrice !== null) {
       this.userCoupangPrice = Number(rawData.userCoupangPrice);
+      this.priceStatus = 'CONFIRMED_USER_INPUT';
+    } else if (rawData.defaultCoupangPrice !== undefined && rawData.defaultCoupangPrice !== null) {
+      this.userCoupangPrice = Number(rawData.defaultCoupangPrice);
       this.priceStatus = 'CONFIRMED_USER_INPUT';
     } else {
       this.userCoupangPrice = null;
@@ -295,11 +297,14 @@ export class MockDomeProductAdapter {
     const shippingFee = Number(mockItem.deliPrice ?? mockItem.wholesaleShippingFee ?? 3000);
     const coupangPrice = Number(mockItem.defaultCoupangPrice ?? mockItem.userCoupangPrice ?? (supplyPrice ? Math.round((supplyPrice + shippingFee) * 1.5 / 100) * 100 : 0));
     const mockCat = String(mockItem.category || mockItem.categoryCode || '1002');
+    const itemNoStr = String(mockItem.no || mockItem.itemNo || '000000');
 
     return {
       isMock: true,
+      no: itemNoStr,
+      itemNo: itemNoStr,
       basis: {
-        no: String(mockItem.no || mockItem.itemNo || '000000'),
+        no: itemNoStr,
         status: mockItem.status || '판매중',
         title: String(mockItem.title || '제목없음')
       },
