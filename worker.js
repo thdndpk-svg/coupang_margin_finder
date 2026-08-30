@@ -1,11 +1,12 @@
 /**
  * Cloudflare Worker / Serverless HTTPS Production Proxy (worker.js)
  * 
- * [배포 방법]
- * 1. npx wrangler deploy worker.js --name domeme-margin-proxy
- * 2. npx wrangler secret put DOME_API_KEY
- * 3. 생성된 HTTPS URL (예: https://domeme-margin-proxy.subdomain.workers.dev)
- * 4. GitHub Actions Secret 또는 VITE_DOMEME_PROXY_URL 빌드 변수에 반영
+ * [보안 규격 반영]
+ * - whitelist mode: getItemList, getItemView 만 허용 (타 mode 차단)
+ * - market=supply 강제 적용 (도매매 위탁상품 검색)
+ * - sz 최대 200 제한
+ * - 클라이언트 aid 파라미터 무시 & 서버 Secret env.DOME_API_KEY 주입
+ * - API Key 로그 마스킹
  */
 
 export default {
@@ -61,17 +62,25 @@ export default {
       targetUrl = `${DOME_ENDPOINT}?ver=4.6&mode=getItemView&aid=${encodeURIComponent(apiKey)}&om=json&no=${itemNo}`;
     } else if (pathname === '/api/domeme/items') {
       const kw = url.searchParams.get('kw') || '텀블러';
-      const sz = url.searchParams.get('sz') || '10';
-      targetUrl = `${DOME_ENDPOINT}?ver=4.1&mode=getItemList&aid=${encodeURIComponent(apiKey)}&om=json&kw=${encodeURIComponent(kw)}&sz=${sz}`;
+      const szRaw = Number(url.searchParams.get('sz') || 10);
+      const sz = Math.min(Math.max(1, isNaN(szRaw) ? 10 : szRaw), 200);
+
+      // market=supply 파라미터 강제
+      targetUrl = `${DOME_ENDPOINT}?ver=4.1&mode=getItemList&market=supply&aid=${encodeURIComponent(apiKey)}&om=json&kw=${encodeURIComponent(kw)}&sz=${sz}`;
     } else {
-      return new Response(JSON.stringify({ status: 'NOT_FOUND', message: 'Invalid Endpoint' }), {
-        status: 404,
+      return new Response(JSON.stringify({ status: 'FORBIDDEN_MODE', message: '허용되지 않은 API mode 입니다 (getItemList, getItemView 만 허용).' }), {
+        status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
     try {
-      const upstreamRes = await fetch(targetUrl);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12초 timeout
+
+      const upstreamRes = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       const dataText = await upstreamRes.text();
 
       let json;
@@ -101,7 +110,8 @@ export default {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     } catch (err) {
-      return new Response(JSON.stringify({ status: 'UPSTREAM_ERROR', message: err.message }), {
+      const errStatus = err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR';
+      return new Response(JSON.stringify({ status: errStatus, message: err.message }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });

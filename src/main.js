@@ -111,15 +111,26 @@ async function loadProducts() {
 
   if (badgeEl) {
     if (res.status === 'CONNECTED') {
-      badgeEl.textContent = 'REAL API 연결됨 (Proxy)';
-      badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
-      badgeEl.style.color = 'var(--accent-green)';
+      const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (isLocalHost) {
+        badgeEl.textContent = 'LOCAL REAL API TEST OK';
+        badgeEl.style.background = 'rgba(59, 130, 246, 0.2)';
+        badgeEl.style.color = 'var(--accent-blue)';
+      } else {
+        badgeEl.textContent = 'v2.2.0 REAL API CONNECTED';
+        badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+        badgeEl.style.color = 'var(--accent-green)';
+      }
     } else if (res.status === 'AUTH_ERROR') {
       badgeEl.textContent = 'API Key 인증 필요 (MOCK)';
       badgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
       badgeEl.style.color = 'var(--accent-red)';
+    } else if (res.status === 'PROXY_NOT_CONFIGURED') {
+      badgeEl.textContent = 'PRODUCTION PROXY WAITING';
+      badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
+      badgeEl.style.color = 'var(--accent-yellow)';
     } else {
-      badgeEl.textContent = 'API Key / Proxy 연결대기 (MOCK)';
+      badgeEl.textContent = 'PRODUCTION PROXY WAITING';
       badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
       badgeEl.style.color = 'var(--accent-yellow)';
     }

@@ -1,5 +1,6 @@
 /**
  * STEP 2.2.0: 도매꾹/도매매 REAL API & getItemView v4.6 공식 파서 (models.js)
+ * - 15가지 상세 필드 파싱 지원 (supplyOrg, deli.supply.tbl 등)
  * - MockDomeProductAdapter는 MOCK 모드에서만 한정 사용하며 REAL API 파싱 경로에서 사용 금지
  */
 
@@ -182,6 +183,7 @@ export class DomeProductModel {
         },
         price: {
           supply: item.price,
+          supplyOrg: item.supplyOrg || item.priceOrg,
           resale: {
             minumum: item.minResalePrice || item.price?.resale?.minumum,
             Recommand: item.recommendResalePrice || item.price?.resale?.Recommand
@@ -189,8 +191,10 @@ export class DomeProductModel {
         },
         deli: {
           supply: {
+            pay: item.deliPay || item.deli?.supply?.pay,
             fee: item.deliPrice !== undefined ? item.deliPrice : item.deli?.supply?.fee,
-            type: item.deli?.supply?.type || '고정배송비'
+            type: item.deli?.supply?.type || '고정배송비',
+            tbl: item.deli?.supply?.tbl
           }
         },
         qty: {
@@ -229,6 +233,7 @@ export class DomeProductModel {
     const parsedSupply = DomeProductModel.parseSupplyPrice(priceObj.supply !== undefined ? priceObj.supply : rawData.price);
 
     this.wholesalePrice = parsedSupply.unitPrice;
+    this.wholesalePriceOrg = priceObj.supplyOrg !== undefined && priceObj.supplyOrg !== null ? Number(priceObj.supplyOrg) : null;
     this.pricingType = parsedSupply.pricingType;
     this.isPriceExact = parsedSupply.isExact;
 
@@ -242,7 +247,9 @@ export class DomeProductModel {
 
     const parsedShipping = DomeProductModel.parseShippingFee(rawData);
     this.wholesaleShippingFee = parsedShipping.fee;
+    this.shippingPayType = rawData.deli?.supply?.pay || null;
     this.shippingTypeLabel = parsedShipping.type;
+    this.shippingTable = rawData.deli?.supply?.tbl || null;
     this.isShippingExact = parsedShipping.isExact;
 
     const qtyObj = rawData.qty || {};
@@ -357,6 +364,7 @@ export class MockDomeProductAdapter {
       },
       price: {
         supply: supplyPrice,
+        supplyOrg: supplyPrice,
         resale: {
           minumum: Number(mockItem.minResalePrice || 0),
           Recommand: Number(mockItem.recommendResalePrice || 0)
@@ -370,7 +378,8 @@ export class MockDomeProductAdapter {
         supply: {
           pay: mockItem.deliPay || '선결제',
           type: '고정배송비',
-          fee: shippingFee
+          fee: shippingFee,
+          tbl: null
         }
       },
       seller: {
