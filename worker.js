@@ -1,31 +1,68 @@
 /**
  * Cloudflare Worker / Serverless HTTPS Production Proxy (worker.js)
  * 
- * [보안 규격 반영]
- * - whitelist mode: getItemList, getItemView 만 허용 (타 mode 차단)
- * - market=supply 강제 적용 (도매매 위탁상품 검색)
- * - sz 최대 200 제한
- * - 클라이언트 aid 파라미터 무시 & 서버 Secret env.DOME_API_KEY 주입
- * - API Key 로그 마스킹
+ * [v2.2.0 PRODUCTION CUTOVER 보안 및 운영 스펙]
+ * 1. Whitelist CORS: https://thdndpk-svg.github.io (DEV: http://localhost:5173, http://localhost:3001)만 허용. 그 외 403 차단.
+ * 2. Whitelist Mode: getItemList, getItemView 만 허용 (타 mode 요청 시 403 차단).
+ * 3. market=supply 파라미터 강제 (도매매 위탁상품 목록 검색).
+ * 4. sz 최대 200개 제한.
+ * 5. Rate Limiting: 1분당 IP별 최대 120회 제한 (초과 시 429 RATE_LIMIT_EXCEEDED).
+ * 6. 클라이언트 aid 무시 & 서버 Secret env.DOME_API_KEY 만 주입.
+ * 7. 로그 내 aid 키 자동 마스킹.
  */
+
+const ipRateMap = new Map();
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 120;
+
+  let record = ipRateMap.get(ip);
+  if (!record || now - record.startTime > windowMs) {
+    record = { startTime: now, count: 1 };
+  } else {
+    record.count++;
+  }
+  ipRateMap.set(ip, record);
+  return record.count <= maxRequests;
+}
 
 export default {
   async fetch(request, env, ctx) {
+    const origin = request.headers.get('Origin');
     const allowedOrigins = [
       'https://thdndpk-svg.github.io',
       'http://localhost:5173',
-      'http://localhost:3001'
+      'http://localhost:3001',
+      'http://127.0.0.1:5173'
     ];
 
-    const origin = request.headers.get('Origin');
+    // CORS Whitelist 검증
+    if (origin && !allowedOrigins.includes(origin)) {
+      return new Response(JSON.stringify({ status: 'FORBIDDEN_ORIGIN', message: '허용되지 않은 Origin 입니다.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const corsHeaders = {
-      'Access-Control-Allow-Origin': allowedOrigins.includes(origin) ? origin : 'https://thdndpk-svg.github.io',
+      'Access-Control-Allow-Origin': origin || 'https://thdndpk-svg.github.io',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders, status: 204 });
+    }
+
+    // Rate Limiting 검증
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown-ip';
+    if (!checkRateLimit(clientIp)) {
+      return new Response(JSON.stringify({ status: 'RATE_LIMIT_EXCEEDED', message: '요청 한도를 초과했습니다.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     const url = new URL(request.url);

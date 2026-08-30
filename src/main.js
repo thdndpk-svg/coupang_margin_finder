@@ -13,6 +13,7 @@ import { configManager } from './config.js';
 import { bookmarkStore } from './storage.js';
 import { ProductValidator } from './validators.js';
 
+export const APP_VERSION = '2.2.0';
 const BUILD_SHA = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BUILD_SHA) || 'dev';
 
 export function nullableNumber(val) {
@@ -58,20 +59,23 @@ if (typeof document !== 'undefined') {
     updateBuildShaDisplay();
     initTabs();
     await loadProducts();
-    initFilterControls();
-    initBookmarkTab();
-    initSimulatorTab();
-    initSettingsTab();
-    initDrawer();
+    initFilterEvents();
+    initSimulatorEvents();
+    initSettingsEvents();
 
-    renderAll();
+    renderHeaderStats();
+    renderProductsTable();
+    renderBookmarksTable();
+    renderSimulator();
+    renderSettings();
   });
 }
 
 function updateBuildShaDisplay() {
   if (typeof document === 'undefined') return;
-  document.querySelectorAll('.build-sha-tag').forEach(el => {
-    el.textContent = `v2.1.4 · Build ${BUILD_SHA}`;
+  const els = document.querySelectorAll('.build-sha-tag');
+  els.forEach(el => {
+    el.textContent = `v${APP_VERSION} · Build ${BUILD_SHA}`;
   });
 }
 
@@ -107,7 +111,7 @@ function initTabs() {
 /* -------------------------------------------------------------------------- */
 async function loadProducts() {
   const badgeEl = typeof document !== 'undefined' ? document.getElementById('api-status-badge') : null;
-  const res = await domeApiClient.getItemList({ kw: '텀블러', sz: '15' });
+  const res = await domeApiClient.getItemList({ kw: '텀블러', sz: '15' }, { allowMockFallback: false });
 
   if (badgeEl) {
     if (res.status === 'CONNECTED') {
@@ -122,7 +126,7 @@ async function loadProducts() {
         badgeEl.style.color = 'var(--accent-green)';
       }
     } else if (res.status === 'AUTH_ERROR') {
-      badgeEl.textContent = 'API Key 인증 필요 (MOCK)';
+      badgeEl.textContent = 'API Key 인증 필요';
       badgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
       badgeEl.style.color = 'var(--accent-red)';
     } else if (res.status === 'PROXY_NOT_CONFIGURED') {
@@ -130,7 +134,7 @@ async function loadProducts() {
       badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
       badgeEl.style.color = 'var(--accent-yellow)';
     } else {
-      badgeEl.textContent = 'PRODUCTION PROXY WAITING';
+      badgeEl.textContent = `API 연결 상태: ${res.status}`;
       badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
       badgeEl.style.color = 'var(--accent-yellow)';
     }

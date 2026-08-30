@@ -1,8 +1,7 @@
 /**
- * STEP 2.2.0: 도매꾹/도매매 Open API 복구 클라이언트 & Proxy 연결 (api.js)
+ * STEP 2.2.0 PRODUCTION CUTOVER: 도매꾹/도매매 Open API 클라이언트 (api.js)
+ * - PROD 환경에서 VITE_DOMEME_PROXY_URL 미설정 시 localhost fallback 전면 차단 (PROXY_NOT_CONFIGURED)
  * - allowMockFallback 옵션 지원 (REAL_API 검증 시 MOCK 전환 전면 금지)
- * - VITE_DOMEME_PROXY_URL 지원
- * - CONNECTED_EMPTY 상태 지원 (실데이터 0건 수신 시 MOCK 혼합 금지)
  */
 
 import { DomeProductModel, MockDomeProductAdapter } from './models.js';
@@ -73,7 +72,15 @@ export class DomeApiClient {
     const envProxyUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_DOMEME_PROXY_URL)
       || (typeof process !== 'undefined' && process.env && process.env.VITE_DOMEME_PROXY_URL);
 
-    this.proxyBaseUrl = envProxyUrl || 'http://localhost:3001';
+    const isProd = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.PROD;
+
+    if (isProd && !envProxyUrl) {
+      // Production 환경에서 PROXY URL 미설정 시 localhost fallback 전면 차단
+      this.proxyBaseUrl = null;
+      this.status = 'PROXY_NOT_CONFIGURED';
+    } else {
+      this.proxyBaseUrl = envProxyUrl || 'http://localhost:3001';
+    }
   }
 
   setMode(mode) {
@@ -101,6 +108,14 @@ export class DomeApiClient {
       };
     }
 
+    if (!this.proxyBaseUrl) {
+      this.status = 'PROXY_NOT_CONFIGURED';
+      if (!allowMockFallback) {
+        return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'PRODUCTION PROXY WAITING', raw: null, parsed: [] };
+      }
+      return this.getFallbackMock('PROXY_NOT_CONFIGURED', 'PRODUCTION PROXY WAITING');
+    }
+
     const kw = params.kw || '텀블러';
     const sz = params.sz || '10';
 
@@ -113,7 +128,7 @@ export class DomeApiClient {
         if (!allowMockFallback) {
           return { mode: 'REAL_API', status: 'AUTH_ERROR', statusLabel: 'API Key 인증 실패', raw: null, parsed: [] };
         }
-        return this.getFallbackMock('AUTH_ERROR', 'API Key 인증 필요 (서버 .env 환경변수 설정)');
+        return this.getFallbackMock('AUTH_ERROR', 'API Key 인증 필요 (서버 환경변수 설정)');
       }
 
       if (!res.ok) {
@@ -167,7 +182,7 @@ export class DomeApiClient {
         return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'Proxy 연결대기', raw: null, parsed: [] };
       }
 
-      return this.getFallbackMock('PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기 (MOCK 데이터 표시)');
+      return this.getFallbackMock('PROXY_NOT_CONFIGURED', 'PRODUCTION PROXY WAITING');
     }
   }
 
@@ -183,6 +198,14 @@ export class DomeApiClient {
         raw: v46Object,
         parsed: new DomeProductModel(v46Object)
       };
+    }
+
+    if (!this.proxyBaseUrl) {
+      this.status = 'PROXY_NOT_CONFIGURED';
+      if (!allowMockFallback) {
+        return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'PRODUCTION PROXY WAITING', raw: null, parsed: null };
+      }
+      return this.getFallbackMockView(itemNo, 'PROXY_NOT_CONFIGURED', 'PRODUCTION PROXY WAITING');
     }
 
     try {
@@ -226,7 +249,7 @@ export class DomeApiClient {
         return { mode: 'REAL_API', status: 'PROXY_NOT_CONFIGURED', statusLabel: 'Proxy 연결대기', raw: null, parsed: null };
       }
 
-      return this.getFallbackMockView(itemNo, 'PROXY_NOT_CONFIGURED', 'API Key / Proxy 연결대기');
+      return this.getFallbackMockView(itemNo, 'PROXY_NOT_CONFIGURED', 'PRODUCTION PROXY WAITING');
     }
   }
 
