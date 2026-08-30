@@ -1,111 +1,151 @@
 /**
- * STEP 2: 수수료 및 로켓그로스, 월 고정비, 수익성 임계값 동적 설정 (ConfigStore)
+ * STEP 2.1.1: 동적 마진 설정 및 LocalStorage 마이그레이션 관리 (config.js)
  */
 
-export const DEFAULT_CONFIG = {
-  // VAT 10% 별도 부과 여부 (false면 명목 수수료율 * 1.1 적용)
-  vatIncludedInRate: false,
+import { DEFAULT_TAX_RATE, DEFAULT_TARGET_DAILY_PROFIT, DEFAULT_TIER_THRESHOLDS, FEE_STATUS } from './constants.js';
 
-  // 카테고리별 쿠팡 표준 수수료율 (VAT 별도 명목 수수료율)
-  categoryFees: {
-    '1001': { name: '가전/디지털', rate: 0.08 },
-    '1002': { name: '생활/주방용품', rate: 0.108 },
-    '1003': { name: '뷰티/화장품', rate: 0.105 },
-    '1004': { name: '패션/의류', rate: 0.115 },
-    '1005': { name: '식품', rate: 0.11 },
-    '1006': { name: '스포츠/레저', rate: 0.108 },
-    '1007': { name: '반려동물용품', rate: 0.108 },
-    'default': { name: '기타/기본 카테고리', rate: 0.108 }
-  },
+export const STORAGE_KEY_V2_1_1 = 'coupang_margin_config_v2_1_1';
+export const LEGACY_STORAGE_KEYS = ['coupang_margin_config_v2', 'coupang_margin_config_v2_1'];
 
-  // 쿠팡 결제 배송비 수수료율 (VAT 포함 약 3.63% / 명목 3.3%)
-  shippingFeeCommissionRate: 0.0363,
-
-  // 로켓그로스 입출고/배송 요금 설정 (단위: 원/건)
-  rocketGrowth: {
-    enabled: false,
-    fulfillmentFeePerUnit: 2500, // 건당 입출고/배송 처리비
-    storageFeePerUnitDay: 15,    // CBM/일 기준 보관료 환산액
-    avgStorageDays: 14           // 평균 보관 일수
-  },
-
-  // 월 고정 비용 (Monthly Overhead) - 상품 1건 마진 계산에서 차감하지 않음!
-  monthlyOverhead: {
-    coupangServiceFee: 55000,    // 쿠팡 월 매출 100만 원 초과 시 이용료 (VAT 포함)
-    solutionFee: 0,              // 외부 연동 솔루션 월 이용료
-    otherMonthlyFixedCost: 0      // 기타 월 고정비
-  },
-
-  // 기본 반품 loss 비율 및 건당 광고비 (보수적 순이익 산출용)
-  conservativeLoss: {
-    returnRate: 0.02,            // 2% 반품 손실률
-    adSpendPerUnit: 1500,        // 건당 평균 타겟 광고비
-    packagingCostPerUnit: 500    // 건당 포장/박스비 (사입시)
-  },
-
-  // 수익성 등급 판단 기준 (기본값)
-  tiers: {
-    passMinProfit: 20000,        // 판매 후보: 20,000원 이상
-    reviewMinProfit: 10000       // 검토 후보: 10,000원 ~ 19,999원
-  },
-
-  // 목표 수익 설정 (기본 하루 목표 순수익 300,000원)
-  targets: {
-    dailyNetProfit: 300000       // 하루 순수익 목표 (원)
-  }
+// 카테고리 수수료 상태 정보 구조
+export const DEFAULT_CATEGORY_FEE_MAP = {
+  '1001': { name: '가전/디지털', rate: 0.08, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1002': { name: '생활/주방용품', rate: 0.108, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1003': { name: '뷰티/화장품', rate: 0.105, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1004': { name: '패션/의류', rate: 0.115, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1005': { name: '식품', rate: 0.110, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1006': { name: '스포츠/레저', rate: 0.108, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false },
+  '1007': { name: '반려동물용품', rate: 0.108, status: FEE_STATUS.TEMPORARY_ASSUMPTION.id, vatIncluded: false }
 };
 
-class ConfigManager {
+export const DEFAULT_CONFIG = {
+  version: '2.1.1',
+  taxRate: DEFAULT_TAX_RATE, // 0.015 (1.5%)
+  targetDailyProfit: DEFAULT_TARGET_DAILY_PROFIT, // 300,000원
+  shippingFeeCommissionRate: 0, // 기본 0
+  returnRate: 0, // 기본 0
+  lossPerReturn: 0, // 기본 0 (건당 실제 손실액)
+  targetAdCostPerOrder: 0, // 기본 0
+  packagingCost: 0, // 기본 0
+  monthlyServiceFee: 55000, // 월 55,000원 고정비
+  passProfitThreshold: DEFAULT_TIER_THRESHOLDS.GRADE_A, // 20,000원
+  reviewProfitThreshold: DEFAULT_TIER_THRESHOLDS.GRADE_B, // 10,000원
+  categoryFees: DEFAULT_CATEGORY_FEE_MAP
+};
+
+export class ConfigManager {
   constructor() {
-    this.config = this.loadConfig();
+    this.config = { ...DEFAULT_CONFIG };
+    this.loadConfig();
   }
 
   loadConfig() {
     try {
-      const saved = localStorage.getItem('coupang_margin_config_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...DEFAULT_CONFIG,
-          ...parsed,
-          categoryFees: { ...DEFAULT_CONFIG.categoryFees, ...(parsed.categoryFees || {}) },
-          rocketGrowth: { ...DEFAULT_CONFIG.rocketGrowth, ...(parsed.rocketGrowth || {}) },
-          monthlyOverhead: { ...DEFAULT_CONFIG.monthlyOverhead, ...(parsed.monthlyOverhead || {}) },
-          conservativeLoss: { ...DEFAULT_CONFIG.conservativeLoss, ...(parsed.conservativeLoss || {}) },
-          tiers: { ...DEFAULT_CONFIG.tiers, ...(parsed.tiers || {}) },
-          targets: { ...DEFAULT_CONFIG.targets, ...(parsed.targets || {}) }
-        };
+      if (typeof localStorage === 'undefined') return;
+
+      // 1. 최신 v2.1.1 설정 읽기
+      const savedV211 = localStorage.getItem(STORAGE_KEY_V2_1_1);
+      if (savedV211) {
+        const parsed = JSON.parse(savedV211);
+        this.config = this.sanitizeConfig(parsed);
+        return;
+      }
+
+      // 2. 구버전 (v2, v2_1) 마이그레이션 수행
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacySaved = localStorage.getItem(legacyKey);
+        if (legacySaved) {
+          try {
+            const legacyData = JSON.parse(legacySaved);
+            const migrated = this.migrateLegacyConfig(legacyData);
+            this.config = migrated;
+            this.saveConfig();
+            console.log(`✅ LocalStorage legacy config (${legacyKey}) migrated to ${STORAGE_KEY_V2_1_1}`);
+            return;
+          } catch (e) {
+            console.warn(`Legacy migration failed for ${legacyKey}:`, e);
+          }
+        }
       }
     } catch (e) {
-      console.warn('Failed to load config from localStorage, using defaults:', e);
+      console.warn('Config load/migration error:', e);
     }
-    return { ...DEFAULT_CONFIG };
   }
 
-  saveConfig(newConfig) {
-    this.config = {
-      ...this.config,
-      ...newConfig,
-      conservativeLoss: { ...this.config.conservativeLoss, ...(newConfig.conservativeLoss || {}) },
-      tiers: { ...this.config.tiers, ...(newConfig.tiers || {}) },
-      targets: { ...this.config.targets, ...(newConfig.targets || {}) },
-      monthlyOverhead: { ...this.config.monthlyOverhead, ...(newConfig.monthlyOverhead || {}) }
+  /**
+   * 구버전 위험 기본값(3.63%, 2%, 1500원, 500원, x1.1) 정화 및 마이그레이션
+   */
+  migrateLegacyConfig(legacyData) {
+    const newConfig = { ...DEFAULT_CONFIG };
+
+    if (legacyData) {
+      // 1. 위험한 옛 기본값 제거
+      if (legacyData.shippingFeeCommissionRate === 0.0363) newConfig.shippingFeeCommissionRate = 0;
+      else if (legacyData.shippingFeeCommissionRate !== undefined) newConfig.shippingFeeCommissionRate = Number(legacyData.shippingFeeCommissionRate);
+
+      if (legacyData.returnRate === 0.02 || legacyData.conservativeLoss?.returnRate === 0.02) newConfig.returnRate = 0;
+      else if (legacyData.returnRate !== undefined) newConfig.returnRate = Number(legacyData.returnRate);
+
+      if (legacyData.targetAdCostPerOrder === 1500 || legacyData.conservativeLoss?.adSpendPerUnit === 1500) newConfig.targetAdCostPerOrder = 0;
+      else if (legacyData.targetAdCostPerOrder !== undefined) newConfig.targetAdCostPerOrder = Number(legacyData.targetAdCostPerOrder);
+
+      if (legacyData.packagingCost === 500 || legacyData.conservativeLoss?.packagingCostPerUnit === 500) newConfig.packagingCost = 0;
+      else if (legacyData.packagingCost !== undefined) newConfig.packagingCost = Number(legacyData.packagingCost);
+
+      if (legacyData.targetDailyProfit) newConfig.targetDailyProfit = Number(legacyData.targetDailyProfit);
+      if (legacyData.passProfitThreshold) newConfig.passProfitThreshold = Number(legacyData.passProfitThreshold);
+      if (legacyData.reviewProfitThreshold) newConfig.reviewProfitThreshold = Number(legacyData.reviewProfitThreshold);
+    }
+
+    return newConfig;
+  }
+
+  sanitizeConfig(configData) {
+    return {
+      ...DEFAULT_CONFIG,
+      ...configData,
+      shippingFeeCommissionRate: Number(configData.shippingFeeCommissionRate || 0),
+      returnRate: Number(configData.returnRate || 0),
+      lossPerReturn: Number(configData.lossPerReturn || 0),
+      targetAdCostPerOrder: Number(configData.targetAdCostPerOrder || 0),
+      packagingCost: Number(configData.packagingCost || 0)
     };
+  }
+
+  saveConfig() {
     try {
-      localStorage.setItem('coupang_margin_config_v2', JSON.stringify(this.config));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_V2_1_1, JSON.stringify(this.config));
+      }
     } catch (e) {
-      console.error('Failed to save config:', e);
+      console.error('Config save error:', e);
     }
   }
 
-  resetConfig() {
-    this.config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
-    localStorage.removeItem('coupang_margin_config_v2');
+  resetToDefault() {
+    this.config = { ...DEFAULT_CONFIG };
+    this.saveConfig();
+  }
+
+  /**
+   * 카테고리 수수료 객체 반환 (수수료 자동 x1.1 제거)
+   */
+  getCategoryFeeObject(categoryCode) {
+    const feeObj = this.config.categoryFees[categoryCode] || {
+      name: '미확인 카테고리',
+      rate: null,
+      status: FEE_STATUS.UNCONFIRMED.id,
+      vatIncluded: null,
+      verifiedAt: null,
+      source: null
+    };
+
+    return feeObj;
   }
 
   getCategoryFeeRate(categoryCode) {
-    const cat = this.config.categoryFees[categoryCode] || this.config.categoryFees['default'];
-    return this.config.vatIncludedInRate ? cat.rate : cat.rate * 1.1;
+    const feeObj = this.getCategoryFeeObject(categoryCode);
+    return feeObj ? feeObj.rate : null;
   }
 }
 

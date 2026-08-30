@@ -1,70 +1,89 @@
 /**
- * STEP 2: 관심상품 저장소 (BookmarkStore)
- * - LocalStorage를 사용한 관심상품 추가/삭제/복원 관리
+ * STEP 2.1.1: LocalStorage 관심상품 및 설정 보관함 (storage.js)
  */
 
-const STORAGE_KEY = 'coupang_bookmarked_products_v2';
-
 export class BookmarkStore {
-  static getBookmarks() {
+  constructor() {
+    this.storageKey = 'coupang_bookmarked_products_v2_1_1';
+  }
+
+  getBookmarks() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem(this.storageKey);
+        return saved ? JSON.parse(saved) : [];
+      }
     } catch (e) {
-      console.warn('Failed to load bookmarks from LocalStorage:', e);
-      return [];
+      console.error('관심상품 불러오기 실패:', e);
     }
+    return [];
   }
 
-  static isBookmarked(itemNo) {
+  isBookmarked(itemNo) {
     const list = this.getBookmarks();
-    return list.some(item => String(item.itemNo) === String(item.itemNo));
+    return list.some(item => String(item.itemNo) === String(itemNo));
   }
 
-  static toggleBookmark(item, calcResult = {}) {
-    const list = this.getBookmarks();
-    const index = list.findIndex(b => String(b.itemNo) === String(item.itemNo));
+  toggleBookmark(productData) {
+    let list = this.getBookmarks();
+    const targetId = String(productData.itemNo);
+    const existingIndex = list.findIndex(item => String(item.itemNo) === targetId);
 
-    if (index >= 0) {
-      list.splice(index, 1);
-      this.saveList(list);
-      return false; // Removed
+    if (existingIndex >= 0) {
+      list.splice(existingIndex, 1);
     } else {
-      const bookmarkData = {
-        itemNo: String(item.itemNo),
-        title: item.title,
-        wholesalePrice: item.wholesalePrice,
-        wholesaleShippingFee: item.wholesaleShippingFee,
-        categoryCode: item.categoryCode,
-        imageUrl: item.imageUrl,
-        isDropShippingAvailable: item.isDropShippingAvailable,
-        productUrl: item.productUrl,
-        coupangPrice: calcResult.coupangPrice || 0,
-        basicNetProfit: calcResult.basicNetProfit || 0,
-        conservativeNetProfit: calcResult.conservativeNetProfit || 0,
-        marginRate: calcResult.marginRate || 0,
-        roi: calcResult.roi || 0,
-        candidateTier: calcResult.candidateTier || 'EXCLUDE',
-        candidateTierName: calcResult.candidateTierName || '제외 후보',
+      list.push({
+        itemNo: targetId,
+        title: productData.title,
+        wholesalePrice: productData.wholesalePrice,
+        wholesaleShippingFee: productData.wholesaleShippingFee,
+        userCoupangPrice: productData.userCoupangPrice,
+        categoryCode: productData.categoryCode,
+        imageUrl: productData.imageUrl,
         savedAt: new Date().toISOString()
-      };
-      list.unshift(bookmarkData);
-      this.saveList(list);
-      return true; // Added
+      });
     }
-  }
 
-  static removeBookmark(itemNo) {
-    const list = this.getBookmarks();
-    const filtered = list.filter(b => String(b.itemNo) !== String(itemNo));
-    this.saveList(filtered);
-  }
-
-  static saveList(list) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.storageKey, JSON.stringify(list));
+      }
     } catch (e) {
-      console.error('Failed to save bookmarks to LocalStorage:', e);
+      console.error('관심상품 저장 실패:', e);
     }
+
+    return this.isBookmarked(targetId);
+  }
+
+  removeBookmark(itemNo) {
+    let list = this.getBookmarks();
+    list = list.filter(item => String(item.itemNo) !== String(itemNo));
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.storageKey, JSON.stringify(list));
+      }
+    } catch (e) {
+      console.error('관심상품 삭제 실패:', e);
+    }
+  }
+
+  exportBookmarksJSON() {
+    const list = this.getBookmarks();
+    return JSON.stringify(list, null, 2);
+  }
+
+  importBookmarksJSON(jsonString) {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (Array.isArray(parsed) && typeof localStorage !== 'undefined') {
+        localStorage.setItem(this.storageKey, JSON.stringify(parsed));
+        return true;
+      }
+    } catch (e) {
+      console.error('JSON 가져오기 실패:', e);
+    }
+    return false;
   }
 }
+
+export const bookmarkStore = new BookmarkStore();
