@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>쿠팡 도매상품 발굴 & 마진 계산기 MVP (STEP 2)</title>
-  <script type="module" crossorigin src="/coupang_margin_finder/assets/index-JdTFau2e.js"></script>
-  <link rel="stylesheet" crossorigin href="/coupang_margin_finder/assets/index-PRJ0mCEt.css">
+  <title>쿠팡 도매상품 발굴 & 마진 분석기 (하루 30만원 프로젝트)</title>
+  <script type="module" crossorigin src="/coupang_margin_finder/assets/index-DHsKXfFo.js"></script>
+  <link rel="stylesheet" crossorigin href="/coupang_margin_finder/assets/index-Ce-rmmaa.css">
 </head>
 <body>
   <div class="container">
@@ -14,28 +14,28 @@
       <div>
         <h1 style="font-size: 1.35rem; font-weight: 700; display: flex; align-items: center; gap: 10px;">
           🚀 쿠팡 상품 발굴 & 실제 마진 분석기
-          <span class="tag-mock">API 연동 전 STEP 2 MVP 모드</span>
+          <span class="tag-mock">STEP 2 MVP 모드 [MOCK]</span>
         </h1>
         <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 4px;">
-          도매가 + 실배송비 + 쿠팡 공식 수수료 반영 실시간 마진 산출 & 수익상품 자동 선별
+          도매가 + 실배송비 + 쿠팡 공식 수수료 + 간이과세 세금충당(1.5%) 반영 | 하루 순수익 30만원 달성 수량 산출
         </p>
       </div>
 
       <div class="summary-stats">
         <div class="stat-pill">
-          <span>전체 상품</span>
+          <span>전체 분석상품</span>
           <strong id="stat-total-cnt">15</strong>
         </div>
         <div class="stat-pill" style="border-color: var(--accent-green);">
-          <span style="color: var(--accent-green);">판매 후보</span>
+          <span style="color: var(--accent-green);">A급 수익 (≥2만원)</span>
           <strong id="stat-pass-cnt" style="color: var(--accent-green);">0</strong>
         </div>
         <div class="stat-pill" style="border-color: var(--accent-yellow);">
-          <span style="color: var(--accent-yellow);">검토 후보</span>
+          <span style="color: var(--accent-yellow);">B급 수익 (≥1만원)</span>
           <strong id="stat-review-cnt" style="color: var(--accent-yellow);">0</strong>
         </div>
         <div class="stat-pill" style="border-color: var(--accent-red);">
-          <span style="color: var(--accent-red);">제외 후보</span>
+          <span style="color: var(--accent-red);">C급/적자</span>
           <strong id="stat-exclude-cnt" style="color: var(--accent-red);">0</strong>
         </div>
         <div class="stat-pill" style="border-color: #f43f5e;">
@@ -81,11 +81,11 @@
 
         <div class="filter-group">
           <label for="flt-max-price">최대 도매가</label>
-          <input type="number" id="flt-max-price" class="filter-control" placeholder="제한 없음" style="width: 110px;" />
+          <input type="number" id="flt-max-price" class="filter-control" placeholder="제한 없음" style="width: 105px;" />
         </div>
 
         <div class="filter-group">
-          <label for="flt-min-profit">최소 순이익</label>
+          <label for="flt-min-profit">최소 상품이익</label>
           <input type="number" id="flt-min-profit" class="filter-control" placeholder="원 이상" style="width: 100px;" />
         </div>
 
@@ -106,15 +106,16 @@
           <label for="flt-pass-only">수익성 필터</label>
           <select id="flt-pass-only" class="filter-control">
             <option value="all">전체 등급 보기</option>
-            <option value="pass">판매 후보만 보기 (≥2만원)</option>
-            <option value="pass_review">판매+검토 후보 보기 (≥1만원)</option>
+            <option value="pass">A급 수익상품 (≥2만원)</option>
+            <option value="pass_review">A+B급 수익상품 (≥1만원)</option>
           </select>
         </div>
 
         <div class="filter-group" style="margin-left: auto;">
           <label for="flt-sort">정렬 기준</label>
           <select id="flt-sort" class="filter-control" style="border-color: var(--accent-blue); font-weight: 600;">
-            <option value="profit_desc">예상 순이익 높은 순 ⬇</option>
+            <option value="profit_desc">기본 상품이익 높은 순 ⬇</option>
+            <option value="required_qty_asc">30만원 필요수량 적은 순 ⬆</option>
             <option value="margin_desc">마진율 높은 순 ⬇</option>
             <option value="roi_desc">ROI 높은 순 ⬇</option>
             <option value="price_asc">도매가격 낮은 순 ⬆</option>
@@ -127,20 +128,20 @@
         <table class="product-table">
           <thead>
             <tr>
-              <th style="width: 40px; text-align: center;">찜</th>
-              <th style="width: 60px;">이미지</th>
+              <th style="width: 36px; text-align: center;">찜</th>
+              <th style="width: 54px;">이미지</th>
               <th>도매 상품명 / 카테고리</th>
               <th>도매 공급가</th>
               <th>도매 배송비</th>
               <th>쿠팡 판매예정가 (직접입력)</th>
               <th>쿠팡 수수료</th>
               <th>총 원가</th>
-              <th>기본 예상 순이익</th>
-              <th>보수적 순이익</th>
+              <th>기본 상품이익</th>
+              <th>보수 상품이익</th>
               <th>마진율</th>
               <th>ROI</th>
-              <th>30만원 목표량</th>
-              <th style="text-align: center;">후보 등급</th>
+              <th style="color: var(--accent-blue); font-weight: 700;">30만원 필요수량</th>
+              <th style="text-align: center;">수익 등급</th>
               <th style="text-align: center;">상세</th>
             </tr>
           </thead>
@@ -155,22 +156,23 @@
     <div id="tab-bookmarks" class="tab-content">
       <div class="card">
         <div class="card-title">
-          <span>♥ 저장된 관심상품 목록 (LocalStorage 지속 보관)</span>
-          <span style="font-size: 0.8rem; color: var(--text-muted);">브라우저 재실행 후에도 자동 복원됩니다.</span>
+          <span>♥ 저장된 관심상품 목록</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">동일 브라우저에서 저장소가 유지되는 경우 복구됩니다.</span>
         </div>
         <div class="table-container">
           <table class="product-table">
             <thead>
               <tr>
-                <th style="width: 60px;">이미지</th>
+                <th style="width: 54px;">이미지</th>
                 <th>상품명</th>
                 <th>도매 공급가</th>
                 <th>쿠팡가</th>
-                <th>기본 순이익</th>
-                <th>보수적 순이익</th>
+                <th>기본 상품이익</th>
+                <th>보수 상품이익</th>
                 <th>마진율</th>
                 <th>ROI</th>
-                <th>등록일자</th>
+                <th>30만원 필요수량</th>
+                <th>저장일자</th>
                 <th style="text-align: center;">관리</th>
               </tr>
             </thead>
@@ -185,6 +187,7 @@
     <!-- TAB 3: Detail Simulator -->
     <div id="tab-simulator" class="tab-content">
       <div class="grid-2">
+        <!-- Left: Input Control -->
         <div class="card">
           <div class="card-title">
             <span>⚙️ 시뮬레이터 파라미터 조절</span>
@@ -194,7 +197,22 @@
             <select id="sim-product-select" class="form-control"></select>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <!-- Quick Price Adjust Buttons -->
+          <div class="form-group">
+            <label>빠른 판매가 조정 시뮬레이션</label>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+              <button class="btn btn-secondary btn-sm btn-quick-price" data-add="1000">+1,000</button>
+              <button class="btn btn-secondary btn-sm btn-quick-price" data-add="3000">+3,000</button>
+              <button class="btn btn-secondary btn-sm btn-quick-price" data-add="5000">+5,000</button>
+              <button class="btn btn-secondary btn-sm btn-quick-price" data-add="-1000">-1,000</button>
+              <button class="btn btn-secondary btn-sm btn-quick-ratio" data-ratio="1.2">원가 1.2배</button>
+              <button class="btn btn-secondary btn-sm btn-quick-ratio" data-ratio="1.3">원가 1.3배</button>
+              <button class="btn btn-secondary btn-sm btn-quick-ratio" data-ratio="1.4">원가 1.4배</button>
+              <button class="btn btn-secondary btn-sm btn-quick-ratio" data-ratio="1.5">원가 1.5배</button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <div class="form-group">
               <label for="sim-wholesale-price">도매 공급가 (원)</label>
               <input type="number" id="sim-wholesale-price" class="form-control" />
@@ -205,60 +223,68 @@
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
             <div class="form-group">
               <label for="sim-coupang-price">쿠팡 판매예정가 (원)</label>
-              <input type="number" id="sim-coupang-price" class="form-control" />
+              <input type="number" id="sim-coupang-price" class="form-control" style="border-color: var(--accent-blue); font-weight: bold;" />
             </div>
             <div class="form-group">
-              <label for="sim-category-select">쿠팡 카테고리 수수료</label>
+              <label for="sim-category-select">쿠팡 카테고리</label>
               <select id="sim-category-select" class="form-control">
-                <option value="1002">생활/주방용품 (명목 10.8% -> VAT 11.88%)</option>
-                <option value="1001">가전/디지털 (명목 8.0% -> VAT 8.8%)</option>
-                <option value="1003">뷰티/화장품 (명목 10.5% -> VAT 11.55%)</option>
-                <option value="1004">패션/의류 (명목 11.5% -> VAT 12.65%)</option>
-                <option value="1005">식품 (명목 11.0% -> VAT 12.1%)</option>
-                <option value="1006">스포츠/레저 (명목 10.8% -> VAT 11.88%)</option>
-                <option value="1007">반려동물용품 (명목 10.8% -> VAT 11.88%)</option>
+                <option value="1002">생활/주방용품 (10.8% - VAT별도)</option>
+                <option value="1001">가전/디지털 (8.0% - VAT별도)</option>
+                <option value="1003">뷰티/화장품 (10.5% - VAT별도)</option>
+                <option value="1004">패션/의류 (11.5% - VAT별도)</option>
+                <option value="1005">식품 (11.0% - VAT별도)</option>
+                <option value="1006">스포츠/레저 (10.8% - VAT별도)</option>
+                <option value="1007">반려동물용품 (10.8% - VAT별도)</option>
               </select>
             </div>
           </div>
 
           <div class="form-group">
-            <label for="sim-shipping-type">배송 방식 (중복 배송비 산정 방지)</label>
+            <label for="sim-shipping-type">배송 방식 (기본: 위탁 무료배송)</label>
             <select id="sim-shipping-type" class="form-control">
-              <option value="DROP_SHIPPING_FREE">위탁배송 (판매자 무료배송) - 도매 배송비 1회 부담</option>
+              <option value="DROP_SHIPPING_FREE">위탁배송 (고객 무료배송) - 도매 배송비 1회 부담 [기본]</option>
               <option value="DROP_SHIPPING_PAID">위탁배송 (고객 배송비 수령) - 결제액 순수령 차감</option>
-              <option value="DIRECT_PURCHASE">사입배송 - 입고비 + 자사택배비 + 포장비 부담</option>
+              <option value="DIRECT_PURCHASE">사입배송 - 입고비 + 자사택배비 + 포장비</option>
               <option value="ROCKET_GROWTH">로켓그로스 입고 - 입고비 + 입출고/배송비 + 보관료</option>
             </select>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div class="form-group">
-              <label for="sim-ad-spend">건당 타겟 광고비 (원)</label>
-              <input type="number" id="sim-ad-spend" class="form-control" value="1500" />
+          <!-- Target Profit Reverse Calc -->
+          <div style="background: rgba(59, 130, 246, 0.08); padding: 12px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2); margin-top: 10px;">
+            <div style="font-size: 0.85rem; font-weight: bold; color: var(--accent-blue); margin-bottom: 6px;">🎯 목표 이익 역산기</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div>
+                <label style="font-size: 0.75rem;">원하는 건당 이익 (원)</label>
+                <input type="number" id="sim-target-profit-input" class="form-control" value="20000" />
+              </div>
+              <div>
+                <label style="font-size: 0.75rem;">목표 일 판매수량 (개)</label>
+                <input type="number" id="sim-target-qty-input" class="form-control" value="15" />
+              </div>
             </div>
-            <div class="form-group">
-              <label for="sim-return-rate">예상 반품률 (비율 0.02 = 2%)</label>
-              <input type="number" step="0.005" id="sim-return-rate" class="form-control" value="0.02" />
+            <div id="sim-reverse-calc-result" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+              -
             </div>
           </div>
         </div>
 
+        <!-- Right: Report -->
         <div class="card">
           <div class="card-title">
             <span>📊 시뮬레이션 결과 리포트</span>
-            <span id="sim-tier-badge" class="badge-tier badge-pass">판매 후보</span>
+            <span id="sim-tier-badge" class="badge-tier badge-pass">A급 수익상품</span>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-            <div style="background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--panel-border);">
-              <div style="font-size: 0.78rem; color: var(--text-muted);">기본 예상 순이익</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+            <div style="background: var(--card-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">기본 상품이익</div>
               <div id="sim-basic-profit" style="font-size: 1.25rem; font-weight: 700; color: var(--accent-green);">0 원</div>
             </div>
-            <div style="background: var(--card-bg); padding: 14px; border-radius: 10px; border: 1px solid var(--panel-border);">
-              <div style="font-size: 0.78rem; color: var(--text-muted);">보수적 예상 순이익</div>
+            <div style="background: var(--card-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--panel-border);">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">보수 상품이익</div>
               <div id="sim-conservative-profit" style="font-size: 1.25rem; font-weight: 700; color: var(--accent-blue);">0 원</div>
             </div>
           </div>
@@ -266,13 +292,36 @@
           <table class="product-table">
             <tbody>
               <tr><th>마진율 / ROI</th><td id="sim-margin-roi">0% / 0%</td></tr>
-              <tr><th>쿠팡 수수료</th><td id="sim-coupang-fee">0 원</td></tr>
-              <tr><th>실부담 배송비</th><td id="sim-actual-shipping">0 원</td></tr>
               <tr><th>총 원가</th><td id="sim-total-cost">0 원</td></tr>
-              <tr><th>10개 / 30개 판매 수익</th><td id="sim-bulk-profit">0 원 / 0 원</td></tr>
-              <tr><th>하루 30만원 달성 수량</th><td id="sim-required-qty" style="color: var(--accent-blue); font-weight: 700;">하루 0 개</td></tr>
+              <tr><th>쿠팡 수수료 <span id="sim-fee-status-badge" class="tag-status">임시 가정</span></th><td id="sim-coupang-fee">0 원</td></tr>
+              <tr><th>간이과세 세금충당 (1.5%)</th><td id="sim-tax-reserve">0 원</td></tr>
+              <tr><th>손익분기 판매가</th><td id="sim-breakeven-price" style="font-weight: bold;">0 원</td></tr>
+              <tr><th>하루 30만원 필요 수량 (기본/보수)</th><td id="sim-required-qty" style="color: var(--accent-blue); font-weight: 700;">-</td></tr>
             </tbody>
           </table>
+
+          <!-- Sales Quantity Simulation Table -->
+          <div style="margin-top: 14px;">
+            <div style="font-size: 0.85rem; font-weight: bold; color: var(--text-color); margin-bottom: 6px;">📈 하루 판매수량 시뮬레이션</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center;">
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                <div style="font-size: 0.7rem; color: var(--text-muted);">하루 5개</div>
+                <div id="sim-qty5-profit" style="font-size: 0.85rem; font-weight: bold; color: var(--accent-green);">0원</div>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                <div style="font-size: 0.7rem; color: var(--text-muted);">하루 10개</div>
+                <div id="sim-qty10-profit" style="font-size: 0.85rem; font-weight: bold; color: var(--accent-green);">0원</div>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                <div style="font-size: 0.7rem; color: var(--text-muted);">하루 20개</div>
+                <div id="sim-qty20-profit" style="font-size: 0.85rem; font-weight: bold; color: var(--accent-green);">0원</div>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                <div style="font-size: 0.7rem; color: var(--text-muted);">하루 30개</div>
+                <div id="sim-qty30-profit" style="font-size: 0.85rem; font-weight: bold; color: var(--accent-green);">0원</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -281,7 +330,7 @@
     <div id="tab-settings" class="tab-content">
       <div class="card">
         <div class="card-title">
-          <span>⚙️ 동적 설정 & 수익성 임계값 관리</span>
+          <span>⚙️ 동적 설정 & 하루 30만원 프로젝트 관리</span>
         </div>
         <div class="grid-2">
           <div>
@@ -291,24 +340,20 @@
               <input type="number" id="cfg-target-daily" class="form-control" value="300000" />
             </div>
             <div class="form-group">
-              <label for="cfg-pass-profit">판매 후보 최소 순이익 (원) [기본: 20,000원]</label>
+              <label for="cfg-pass-profit">A급 수익상품 최소이익 (원) [기본: 20,000원]</label>
               <input type="number" id="cfg-pass-profit" class="form-control" value="20000" />
             </div>
             <div class="form-group">
-              <label for="cfg-review-profit">검토 후보 최소 순이익 (원) [기본: 10,000원]</label>
+              <label for="cfg-review-profit">B급 수익상품 최소이익 (원) [기본: 10,000원]</label>
               <input type="number" id="cfg-review-profit" class="form-control" value="10000" />
             </div>
           </div>
 
           <div>
-            <h3 style="font-size: 0.95rem; color: var(--accent-blue); margin-bottom: 12px;">2. 보수적 순이익 차감 요소 & 월 고정비</h3>
+            <h3 style="font-size: 0.95rem; color: var(--accent-blue); margin-bottom: 12px;">2. 세금충당 & 월 고정비 관리</h3>
             <div class="form-group">
-              <label for="cfg-ad-spend">기본 건당 광고비 (원)</label>
-              <input type="number" id="cfg-ad-spend" class="form-control" value="1500" />
-            </div>
-            <div class="form-group">
-              <label for="cfg-return-rate">기본 반품 손실률 (0.02 = 2%)</label>
-              <input type="number" step="0.005" id="cfg-return-rate" class="form-control" value="0.02" />
+              <label for="cfg-tax-rate">간이과세 세금충당율 (0.015 = 1.5%)</label>
+              <input type="number" step="0.001" id="cfg-tax-rate" class="form-control" value="0.015" />
             </div>
             <div class="form-group">
               <label for="cfg-service-fee">쿠팡 월 서비스 이용료 (월 매출 100만원 초과시) [55,000원]</label>
@@ -318,8 +363,8 @@
         </div>
 
         <div class="alert alert-warning" style="margin-top: 14px;">
-          🛡️ <strong>월 고정비 (Monthly Overhead) 관리 안내</strong><br/>
-          월 55,000원 서비스 이용료는 상품 1건 개별 마진 계산 시 차감하지 않고 별도 고정비로 안전하게 관리됩니다.
+          🛡️ <strong>월 고정비 (Monthly Overhead) 독립 관리 안내</strong><br/>
+          월 55,000원 서비스 이용료는 상품 1건 개별 마진 계산 시 차감하지 않고 별도 고정비로 안전하게 독립 관리됩니다.
         </div>
 
         <div style="display: flex; gap: 12px; margin-top: 16px;">
@@ -329,6 +374,10 @@
       </div>
     </div>
 
+    <!-- Footer Disclaimer -->
+    <footer style="margin-top: 24px; padding: 12px; text-align: center; font-size: 0.78rem; color: var(--text-muted); border-top: 1px solid var(--panel-border);">
+      🛡️ 본 계산 결과는 입력된 원가·판매가·수수료·세금충당 및 사용자가 입력한 비용을 기준으로 한 상품별 시뮬레이션입니다. 실제 판매량이나 수익을 보장하지 않습니다.
+    </footer>
   </div>
 
   <!-- Detail Drawer Modal -->
@@ -338,7 +387,6 @@
         <h3 id="drawer-title" style="font-size: 1.1rem; color: var(--accent-blue);">상품 상세 마진 분석</h3>
         <button id="btn-close-drawer" class="close-btn">&times;</button>
       </div>
-
       <div id="drawer-content">
         <!-- JS 렌더링 -->
       </div>
