@@ -1,8 +1,8 @@
 /**
- * STEP 2.1.2: 메인 대시보드 및 4개 탭 통합 컨트롤러 (main.js)
- * - 관심상품/시뮬레이터/설정/Drawer 100% 작동 구현
- * - 수수료 [가정] / [직접입력] / [확인] 표기
- * - ProductValidator 메인 흐름 연동
+ * STEP 2.1.3: 메인 대시보드 및 4개 탭 통합 컨트롤러 (main.js)
+ * - nullableNumber() 헬퍼 도입 (0원 오판 완전 방지)
+ * - 수수료 배지 실제 status 연동 ([가정], [직접입력], [확인], [미확인])
+ * - 최저판매준수가격 위반 경고 표시 (minResaleViolation)
  */
 
 import { domeApiClient } from './api.js';
@@ -11,7 +11,24 @@ import { configManager } from './config.js';
 import { bookmarkStore } from './storage.js';
 import { ProductValidator } from './validators.js';
 
-const BUILD_SHA = import.meta.env.VITE_BUILD_SHA || 'dev';
+const BUILD_SHA = (import.meta && import.meta.env && import.meta.env.VITE_BUILD_SHA) || 'dev';
+
+export function nullableNumber(val) {
+  if (val === '' || val === null || val === undefined) return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function getFeeStatusBadgeText(status) {
+  switch (status) {
+    case 'TEMPORARY_ASSUMPTION': return '[가정]';
+    case 'CONFIRMED_USER_INPUT':
+    case 'USER_INPUT': return '[직접입력]';
+    case 'CONFIRMED': return '[확인]';
+    case 'UNCONFIRMED':
+    default: return '[미확인]';
+  }
+}
 
 let state = {
   products: [],
@@ -28,22 +45,24 @@ let state = {
   activeSimulatorItemNo: null
 };
 
-document.addEventListener('DOMContentLoaded', async () => {
-  updateBuildShaDisplay();
-  initTabs();
-  await loadProducts();
-  initFilterControls();
-  initBookmarkTab();
-  initSimulatorTab();
-  initSettingsTab();
-  initDrawer();
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', async () => {
+    updateBuildShaDisplay();
+    initTabs();
+    await loadProducts();
+    initFilterControls();
+    initBookmarkTab();
+    initSimulatorTab();
+    initSettingsTab();
+    initDrawer();
 
-  renderAll();
-});
+    renderAll();
+  });
+}
 
 function updateBuildShaDisplay() {
   document.querySelectorAll('.build-sha-tag').forEach(el => {
-    el.textContent = `v2.1.2 · Build ${BUILD_SHA}`;
+    el.textContent = `v2.1.3 · Build ${BUILD_SHA}`;
   });
 }
 
@@ -79,7 +98,6 @@ function initTabs() {
 async function loadProducts() {
   const res = await domeApiClient.getItemList();
   state.products = res.parsed.map(item => {
-    // 실제 API 상품은 defaultCoupangPrice가 null! MOCK만 제안가 제공
     const defaultCoupangPrice = item.isMock ? item.userCoupangPrice : null;
     return {
       item,
@@ -95,7 +113,7 @@ function recalculateAllProducts() {
     p.calc = MarginCalculator.calculate({
       product: p.item,
       userCoupangPrice: p.coupangPrice,
-      categoryCode: p.item.categoryCode,
+      categoryCode: p.item.coupangCategoryCode,
       shippingType: 'DROP_SHIPPING_FREE'
     });
     p.verification = ProductValidator.evaluate(p.item);
@@ -107,7 +125,7 @@ function applyFiltersAndSort() {
   let list = [...state.products];
 
   if (f.category !== 'all') {
-    list = list.filter(p => p.item.categoryCode === f.category);
+    list = list.filter(p => p.item.supplierCategoryCode === f.category || p.item.coupangCategoryCode === f.category);
   }
   if (f.maxPrice !== null && !isNaN(f.maxPrice) && f.maxPrice > 0) {
     list = list.filter(p => p.item.wholesalePrice !== null && p.item.wholesalePrice <= f.maxPrice);
@@ -129,7 +147,7 @@ function applyFiltersAndSort() {
 
   switch (f.sort) {
     case 'profit_desc':
-      list.sort((a, b) => (b.calc.basicProfit || 0) - (a.calc.basicProfit || 0));
+      list.sort((a, b) => (b.calc.basicProfit || -999999) - (a.calc.basicProfit || -999999));
       break;
     case 'required_qty_asc':
       list.sort((a, b) => {
@@ -183,6 +201,7 @@ function renderHeaderStats() {
 /* -------------------------------------------------------------------------- */
 function renderSourcingTable() {
   const tbody = document.getElementById('sourcing-table-body');
+  if (!tbody) return;
   tbody.innerHTML = '';
 
   if (state.filteredProducts.length === 0) {
@@ -202,11 +221,11 @@ function renderSourcingTable() {
 
     const reqQtyText = calc.requiredDailySales !== null ? `${calc.requiredDailySales}개/일` : '달성불가';
 
-    // 수수료 라벨 ([가정], [직접입력], [확인])
-    let feeBadgeText = '[가정]';
-    if (p.coupangPrice !== null && item.categoryCode) {
-      feeBadgeText = '[가정]';
-    }
+    // 수수료 배지 텍스트
+    const feeBadgeText = getFeeStatusBadgeText(item.coupangFeeStatus);
+
+    // 최저판매준수가격 위반 경고
+    const violationBadge = item.minResaleViolation ? `<span style="color:var(--accent-red); font-size:0.75rem; font-weight:bold; margin-left:4px;">[최저판매준수가격 위반]</span>` : '';
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -220,10 +239,10 @@ function renderSourcingTable() {
       </td>
       <td>
         <div style="font-weight: 600; font-size: 0.88rem; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-          ${item.isMock ? '<span class="tag-mock">MOCK</span>' : ''} ${item.title || '제목없음'}
+          ${item.isMock ? '<span class="tag-mock">MOCK</span>' : ''} ${item.title || '제목없음'} ${violationBadge}
         </div>
         <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
-          카테고리: ${configManager.config.categoryFees[item.categoryCode]?.name || '미확인'} | ID: ${item.itemNo}
+          도매카테고리: ${item.supplierCategoryName || item.supplierCategoryCode || '미확인'} | ID: ${item.itemNo}
           <span style="color:var(--accent-blue); margin-left: 4px;">[${item.channelLabel}]</span>
           <span style="color:var(--text-muted); margin-left: 4px;">(${p.verification.label})</span>
         </div>
@@ -235,7 +254,7 @@ function renderSourcingTable() {
       </td>
       <td style="color: var(--text-muted);">
         ${calc.coupangFee !== null ? calc.coupangFee.toLocaleString() + '원' : '-'}
-        <span style="font-size: 0.7rem; color: var(--accent-yellow);">${calc.coupangFee !== null ? feeBadgeText : ''}</span>
+        <span style="font-size: 0.7rem; color: var(--accent-yellow);">${feeBadgeText}</span>
       </td>
       <td>${calc.totalCost !== null ? calc.totalCost.toLocaleString() + '원' : '-'}</td>
       <td style="font-weight: 700; color: var(--accent-green);">${calc.basicProfit !== null ? calc.basicProfit.toLocaleString() + '원' : '-'}</td>
@@ -257,7 +276,7 @@ function renderSourcingTable() {
   tbody.querySelectorAll('.input-coupang-price').forEach(input => {
     input.addEventListener('input', (e) => {
       const itemNo = e.target.getAttribute('data-itemno');
-      const val = e.target.value !== '' ? Number(e.target.value) : null;
+      const val = nullableNumber(e.target.value);
       const targetP = state.products.find(p => String(p.item.itemNo) === String(itemNo));
       if (targetP) {
         targetP.coupangPrice = val;
@@ -277,7 +296,7 @@ function renderSourcingTable() {
           wholesalePrice: targetP.item.wholesalePrice,
           wholesaleShippingFee: targetP.item.wholesaleShippingFee,
           userCoupangPrice: targetP.coupangPrice,
-          categoryCode: targetP.item.categoryCode,
+          categoryCode: targetP.item.coupangCategoryCode,
           imageUrl: targetP.item.imageUrl
         });
         renderAll();
@@ -299,15 +318,15 @@ function initFilterControls() {
     renderAll();
   });
   document.getElementById('flt-max-price').addEventListener('input', e => {
-    state.filters.maxPrice = e.target.value !== '' ? Number(e.target.value) : null;
+    state.filters.maxPrice = nullableNumber(e.target.value);
     renderAll();
   });
   document.getElementById('flt-min-profit').addEventListener('input', e => {
-    state.filters.minProfit = e.target.value !== '' ? Number(e.target.value) : null;
+    state.filters.minProfit = nullableNumber(e.target.value);
     renderAll();
   });
   document.getElementById('flt-min-margin').addEventListener('input', e => {
-    state.filters.minMargin = e.target.value !== '' ? Number(e.target.value) : null;
+    state.filters.minMargin = nullableNumber(e.target.value);
     renderAll();
   });
   document.getElementById('flt-dropship').addEventListener('change', e => {
@@ -400,7 +419,7 @@ function initSimulatorTab() {
     btn.addEventListener('click', () => {
       const addVal = Number(btn.getAttribute('data-add'));
       const priceInput = document.getElementById('sim-coupang-price');
-      const cur = Number(priceInput.value || 0);
+      const cur = nullableNumber(priceInput.value) || 0;
       priceInput.value = Math.max(0, cur + addVal);
       renderSimulator();
     });
@@ -409,8 +428,8 @@ function initSimulatorTab() {
   document.querySelectorAll('.btn-quick-ratio').forEach(btn => {
     btn.addEventListener('click', () => {
       const ratio = Number(btn.getAttribute('data-ratio'));
-      const wholesale = Number(document.getElementById('sim-wholesale-price').value || 0);
-      const shipping = Number(document.getElementById('sim-wholesale-shipping').value || 0);
+      const wholesale = nullableNumber(document.getElementById('sim-wholesale-price').value) || 0;
+      const shipping = nullableNumber(document.getElementById('sim-wholesale-shipping').value) || 0;
       const totalCost = wholesale + shipping;
       document.getElementById('sim-coupang-price').value = Math.round((totalCost * ratio) / 100) * 100;
       renderSimulator();
@@ -460,19 +479,19 @@ function renderSimulator() {
   const shippingTypeSelect = document.getElementById('sim-shipping-type');
 
   if (document.activeElement !== wholesaleInput && wholesaleInput) {
-    wholesaleInput.value = targetP.item.wholesalePrice || '';
+    wholesaleInput.value = targetP.item.wholesalePrice !== null ? targetP.item.wholesalePrice : '';
   }
   if (document.activeElement !== shippingInput && shippingInput) {
-    shippingInput.value = targetP.item.wholesaleShippingFee || '';
+    shippingInput.value = targetP.item.wholesaleShippingFee !== null ? targetP.item.wholesaleShippingFee : '';
   }
   if (document.activeElement !== coupangInput && coupangInput) {
-    coupangInput.value = targetP.coupangPrice || '';
+    coupangInput.value = targetP.coupangPrice !== null ? targetP.coupangPrice : '';
   }
 
-  const wholesale = Number(wholesaleInput?.value || 0);
-  const shipping = Number(shippingInput?.value || 0);
-  const coupang = Number(coupangInput?.value || 0);
-  const categoryCode = categorySelect?.value || '1002';
+  const wholesale = nullableNumber(wholesaleInput?.value);
+  const shipping = nullableNumber(shippingInput?.value);
+  const coupang = nullableNumber(coupangInput?.value);
+  const categoryCode = categorySelect?.value || null;
   const shippingType = shippingTypeSelect?.value || 'DROP_SHIPPING_FREE';
 
   const calc = MarginCalculator.calculate({
@@ -486,7 +505,7 @@ function renderSimulator() {
   // 결과 리포트 렌더링
   document.getElementById('sim-basic-profit').textContent = calc.basicProfit !== null ? `${calc.basicProfit.toLocaleString()} 원` : '-';
   document.getElementById('sim-conservative-profit').textContent = calc.conservativeProfit !== null ? `${calc.conservativeProfit.toLocaleString()} 원` : '-';
-  document.getElementById('sim-margin-roi').textContent = calc.marginRate !== null ? `${calc.marginRate}% / ${calc.roi}%` : '-';
+  document.getElementById('sim-margin-roi').textContent = calc.marginRate !== null ? `${calc.marginRate}% / ${calc.roi}%` : '- / -';
   document.getElementById('sim-total-cost').textContent = calc.totalCost !== null ? `${calc.totalCost.toLocaleString()} 원` : '-';
   document.getElementById('sim-coupang-fee').textContent = calc.coupangFee !== null ? `${calc.coupangFee.toLocaleString()} 원` : '-';
   document.getElementById('sim-tax-reserve').textContent = calc.taxReserve !== null ? `${calc.taxReserve.toLocaleString()} 원` : '-';
@@ -506,6 +525,12 @@ function renderSimulator() {
     tierBadge.textContent = calc.profitTier.name;
   }
 
+  // 수수료 상태 배지
+  const feeStatusBadge = document.getElementById('sim-fee-status-badge');
+  if (feeStatusBadge) {
+    feeStatusBadge.textContent = categoryCode ? '임시 가정' : '미확인';
+  }
+
   // 하루 5/10/20/30개 판매수량 시뮬레이션
   [5, 10, 20, 30].forEach(qty => {
     const el = document.getElementById(`sim-qty${qty}-profit`);
@@ -515,8 +540,8 @@ function renderSimulator() {
   });
 
   // 목표 이익 역산기
-  const targetProfitVal = Number(document.getElementById('sim-target-profit-input')?.value || 20000);
-  const targetQtyVal = Number(document.getElementById('sim-target-qty-input')?.value || 15);
+  const targetProfitVal = nullableNumber(document.getElementById('sim-target-profit-input')?.value) || 20000;
+  const targetQtyVal = nullableNumber(document.getElementById('sim-target-qty-input')?.value) || 15;
   const targetPriceObj = MarginCalculator.calcTargetSellingPrice({ wholesalePrice: wholesale, wholesaleShippingFee: shipping, targetProfit: targetProfitVal, feeRate: calc.feeRate });
 
   const revEl = document.getElementById('sim-reverse-calc-result');
@@ -538,11 +563,11 @@ function initSettingsTab() {
 
   if (saveBtn) {
     saveBtn.addEventListener('click', () => {
-      configManager.config.targetDailyProfit = Number(document.getElementById('cfg-target-daily').value || 300000);
-      configManager.config.passProfitThreshold = Number(document.getElementById('cfg-pass-profit').value || 20000);
-      configManager.config.reviewProfitThreshold = Number(document.getElementById('cfg-review-profit').value || 10000);
-      configManager.config.taxRate = Number(document.getElementById('cfg-tax-rate').value || 0.015);
-      configManager.config.monthlyServiceFee = Number(document.getElementById('cfg-service-fee').value || 55000);
+      configManager.config.targetDailyProfit = nullableNumber(document.getElementById('cfg-target-daily').value) || 300000;
+      configManager.config.passProfitThreshold = nullableNumber(document.getElementById('cfg-pass-profit').value) || 20000;
+      configManager.config.reviewProfitThreshold = nullableNumber(document.getElementById('cfg-review-profit').value) || 10000;
+      configManager.config.taxRate = nullableNumber(document.getElementById('cfg-tax-rate').value) || 0.015;
+      configManager.config.monthlyServiceFee = nullableNumber(document.getElementById('cfg-service-fee').value) || 55000;
 
       configManager.saveConfig();
       alert('💾 설정이 성공적으로 저장되었습니다!');
@@ -621,7 +646,7 @@ function openDrawerForItem(itemNo) {
       <tbody>
         <tr><th>쿠팡 판매예정가</th><td><strong>${calc.coupangPrice ? calc.coupangPrice.toLocaleString() + ' 원' : '미입력'}</strong></td></tr>
         <tr><th>총 원가</th><td>${calc.totalCost ? calc.totalCost.toLocaleString() + ' 원' : '-'}</td></tr>
-        <tr><th>쿠팡 수수료</th><td>${calc.coupangFee ? calc.coupangFee.toLocaleString() + ' 원' : '-'} <span style="font-size:0.7rem; color:var(--accent-yellow);">[가정]</span></td></tr>
+        <tr><th>쿠팡 수수료</th><td>${calc.coupangFee ? calc.coupangFee.toLocaleString() + ' 원' : '-'} <span style="font-size:0.7rem; color:var(--accent-yellow);">${getFeeStatusBadgeText(item.coupangFeeStatus)}</span></td></tr>
         <tr><th>간이과세 세금충당(1.5%)</th><td>${calc.taxReserve ? calc.taxReserve.toLocaleString() + ' 원' : '-'}</td></tr>
         <tr><th>기본 상품이익</th><td style="font-weight:bold; color:var(--accent-green);">${calc.basicProfit ? calc.basicProfit.toLocaleString() + ' 원' : '-'}</td></tr>
         <tr><th>보수 상품이익</th><td style="color:#7dd3fc;">${calc.conservativeProfit ? calc.conservativeProfit.toLocaleString() + ' 원' : '-'}</td></tr>

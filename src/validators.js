@@ -1,7 +1,7 @@
 /**
- * STEP 2.1.2: 상품 안전성 및 리스크 검증기 (validators.js)
+ * STEP 2.1.3: 상품 안전성 및 리스크 검증기 (validators.js)
  * - null <= 0 이 true가 되는 자바스크립트 버그 완벽 방지
- * - 데이터 미확인 시 자동 품절/비추천 처리 금지
+ * - APPROVED 라벨을 보수적인 '공급조건 1차검증 완료'로 변경
  */
 
 export class ProductValidator {
@@ -11,7 +11,7 @@ export class ProductValidator {
    */
   static evaluate(product) {
     const issues = [];
-    let status = 'APPROVED'; // APPROVED(검증완료), CONDITIONAL(조건부), PENDING(확인필요), REJECTED(판매비추천)
+    let status = 'APPROVED'; // APPROVED, CONDITIONAL, PENDING, REJECTED
 
     if (!product) {
       return {
@@ -85,7 +85,13 @@ export class ProductValidator {
       if (status === 'APPROVED') status = 'CONDITIONAL';
     }
 
-    let label = '검증완료';
+    // 8. 최저판매준수가격 위반 확인
+    if (product.minResaleViolation) {
+      issues.push(`최저판매준수가격 위반 (${product.userCoupangPrice?.toLocaleString()}원 < 준수가 ${product.minResalePrice?.toLocaleString()}원)`);
+      status = 'REJECTED';
+    }
+
+    let label = '공급조건 1차검증 완료';
     if (status === 'CONDITIONAL') label = '조건부 승인';
     else if (status === 'PENDING') label = '확인필요';
     else if (status === 'REJECTED') label = '판매비추천';

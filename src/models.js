@@ -1,15 +1,12 @@
 /**
- * STEP 2.1.2: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
- * - 배송비 4가지 공식 type & pay 타입 처리
- * - 수량별차등 / 수량별비례 개별 파서 구현
- * - 가짜 기본값 (1002, 3000원, 999개, 1등급, 판매중) 전면 제거
- * - MOCK 데이터를 공식 v4.6 구조로 변환하는 MockDomeProductAdapter 분리
+ * STEP 2.1.3: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
+ * - 도매매 카테고리와 쿠팡 카테고리 완전 분리 (supplierCategoryCode vs coupangCategoryCode)
+ * - seller.vacation 객체 (startDate, endDate, days) 파싱 및 날짜 판정
+ * - 최저판매준수가격(minumum) 위반 검증 (minResaleViolation)
+ * - 배송비 금액비노출 최우선 파싱 및 알 수 없는 type fallback 제거
  */
 
 export class DomeProductModel {
-  /**
-   * 수량별 차등가격 파서
-   */
   static parseSupplyPrice(priceSupply, orderQty = 1) {
     if (priceSupply === undefined || priceSupply === null || priceSupply === '') {
       return { unitPrice: null, pricingType: '가격확인필요', rawValue: priceSupply, isExact: false };
@@ -49,10 +46,6 @@ export class DomeProductModel {
     return { unitPrice: null, pricingType: '가격확인필요', rawValue: priceSupply, isExact: false };
   }
 
-  /**
-   * 수량별차등 배송비 파서
-   * tbl = "1+2500|20+2350|40+2100|60+2000"
-   */
   static parseTieredShippingFee(tbl, orderQty = 1) {
     if (!tbl) return null;
     try {
@@ -71,10 +64,6 @@ export class DomeProductModel {
     }
   }
 
-  /**
-   * 수량별비례 배송비 파서
-   * tbl = "50+2500|100+2000" (기본 50개까지 2,500원, 이후 초과 100개 단위마다 2,000원 추가)
-   */
   static parseProportionalShippingFee(tbl, orderQty = 1) {
     if (!tbl) return null;
     try {
@@ -110,7 +99,7 @@ export class DomeProductModel {
   }
 
   /**
-   * 공식 배송비 파서 (deli.supply.pay & deli.supply.type)
+   * 공식 배송비 파서 (금액비노출 최우선 확인 및 허용 type 검증)
    */
   static parseShippingFee(rawData, orderQty = 1) {
     const deli = rawData.deli?.supply || rawData.deli?.dome || rawData.deli || {};
@@ -120,7 +109,12 @@ export class DomeProductModel {
     const rawFee = deli.fee;
     const tbl = deli.tbl;
 
-    // 1. 배송 결제 방식(pay) 최우선 확인
+    // 1. 금액비노출 최우선 판단 (rawFee 숫자가 있어도 무조건 배송비확인필요)
+    if (deliType === '금액비노출') {
+      return { fee: null, type: '배송비확인필요', status: '미확인', isExact: false };
+    }
+
+    // 2. 배송 결제 방식(pay) 최우선 확인
     if (payType === '무료배송') {
       return { fee: 0, type: '무료배송', status: '확인됨', isExact: true };
     }
@@ -133,7 +127,7 @@ export class DomeProductModel {
       return { fee: null, type: '배송조건 확인필요', status: '미확인', isExact: false };
     }
 
-    // 2. 배송비 유형(type) 공식 문자열 처리
+    // 3. 배송비 유형(type) 공식 문자열 처리
     if (deliType === '수량별차등' && tbl) {
       const fee = DomeProductModel.parseTieredShippingFee(tbl, orderQty);
       if (fee !== null) {
@@ -152,15 +146,38 @@ export class DomeProductModel {
       return { fee: Number(rawFee), type: '고정배송비', status: '확인됨', isExact: true };
     }
 
-    if (rawFee !== undefined && rawFee !== null && !isNaN(Number(rawFee))) {
-      return { fee: Number(rawFee), type: `${deliType || '고정'}배송비`, status: '확인됨', isExact: true };
-    }
-
-    if (deliType === '금액비노출') {
-      return { fee: null, type: '배송비확인필요', status: '미확인', isExact: false };
-    }
-
+    // 알 수 없는 type이면 rawFee 숫자가 있어도 generic fallback을 적용하지 않음!
     return { fee: null, type: '배송비확인필요', status: '미확인', isExact: false };
+  }
+
+  /**
+   * seller.vacation 객체 날짜 파서
+   */
+  static parseSellerVacation(vacationObj, now = new Date()) {
+    if (!vacationObj || typeof vacationObj !== 'object') {
+      return { isVacation: null, statusLabel: '확인정보 없음', details: null };
+    }
+
+    const { startDate, endDate, days } = vacationObj;
+    if (!startDate || !endDate) {
+      return { isVacation: null, statusLabel: '확인정보 없음', details: vacationObj };
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { isVacation: null, statusLabel: '확인정보 없음', details: vacationObj };
+    }
+
+    const curTime = now.getTime();
+    if (curTime >= start.getTime() && curTime <= end.getTime()) {
+      return { isVacation: true, statusLabel: '휴가중', details: { startDate, endDate, days } };
+    } else if (curTime > end.getTime()) {
+      return { isVacation: false, statusLabel: '휴가종료', details: { startDate, endDate, days } };
+    } else {
+      return { isVacation: false, statusLabel: '휴가예정', details: { startDate, endDate, days } };
+    }
   }
 
   constructor(rawData = {}) {
@@ -184,13 +201,13 @@ export class DomeProductModel {
 
     this.minResalePrice = priceObj.resale?.minumum !== undefined && priceObj.resale?.minumum !== null
       ? Number(priceObj.resale.minumum)
-      : null;
+      : 0;
 
     this.recommendResalePrice = priceObj.resale?.Recommand !== undefined && priceObj.resale?.Recommand !== null
       ? Number(priceObj.resale.Recommand)
-      : null;
+      : 0;
 
-    // 3. 배송비 파싱 (deli.supply.type / fee / tbl 파서)
+    // 3. 배송비 파싱
     const parsedShipping = DomeProductModel.parseShippingFee(rawData);
     this.wholesaleShippingFee = parsedShipping.fee;
     this.shippingTypeLabel = parsedShipping.type;
@@ -215,21 +232,18 @@ export class DomeProductModel {
       this.supplyUnitStatus = '공급단위확인필요';
     }
 
-    // 5. 공급사 정보 (seller.rank, seller.vacation)
+    // 5. 공급사 정보 및 seller.vacation 파싱
     const sellerObj = rawData.seller || {};
     this.sellerRank = sellerObj.rank !== undefined && sellerObj.rank !== null
       ? Number(sellerObj.rank)
       : null;
     this.sellerRankLabel = this.sellerRank !== null ? `${this.sellerRank}등급` : '공급사 등급 확인필요';
 
-    this.sellerVacation = sellerObj.vacation !== undefined && sellerObj.vacation !== null
-      ? Boolean(sellerObj.vacation)
-      : null;
-    this.sellerVacationStatus = this.sellerVacation === true
-      ? '휴가중'
-      : (this.sellerVacation === false ? '정상영업' : '확인필요');
+    const parsedVacation = DomeProductModel.parseSellerVacation(sellerObj.vacation);
+    this.sellerVacation = parsedVacation.isVacation;
+    this.sellerVacationStatus = parsedVacation.statusLabel;
 
-    // 6. 도매매 판매채널 파싱 (channel.supply - boolean 공식 타입 지원)
+    // 6. 도매매 판매채널 파싱 (channel.supply)
     const channelObj = rawData.channel || {};
     const channelSupply = channelObj.supply;
 
@@ -245,7 +259,7 @@ export class DomeProductModel {
     }
     this.isDropShippingAvailable = this.dropShippingStatus === '위탁 가능';
 
-    // 7. 이미지 사용권 파싱 (desc.license.usable - boolean 공식 타입 지원)
+    // 7. 이미지 사용권 파싱 (desc.license.usable)
     const descObj = rawData.desc || {};
     const licenseUsable = descObj.license?.usable;
     if (licenseUsable === true) {
@@ -256,21 +270,46 @@ export class DomeProductModel {
       this.imageLicenseStatus = '확인불가';
     }
 
-    // 8. 썸네일 & 카테고리 (category.current가 없으면 null!)
+    // 8. 썸네일 & 도매매 카테고리 / 쿠팡 카테고리 분리 파싱
     const thumbObj = rawData.thumb || {};
     this.imageUrl = thumbObj.large || thumbObj.original || 'https://via.placeholder.com/80';
     this.itemUrl = this.itemNo ? `https://domeggook.com/${this.itemNo}` : '#';
 
-    const categoryObj = rawData.category || {};
-    this.categoryCode = categoryObj.current ? String(categoryObj.current) : null;
+    // 도매매 카테고리 파싱 (category.current 객체/primitive 호환)
+    const categoryCurrent = rawData.category?.current;
+    if (categoryCurrent && typeof categoryCurrent === 'object') {
+      this.supplierCategoryCode = String(categoryCurrent.code || '');
+      this.supplierCategoryName = String(categoryCurrent.name || '');
+      this.supplierCategoryDepth = categoryCurrent.depth ? Number(categoryCurrent.depth) : null;
+    } else if (categoryCurrent && typeof categoryCurrent !== 'object') {
+      this.supplierCategoryCode = String(categoryCurrent);
+      this.supplierCategoryName = '';
+      this.supplierCategoryDepth = null;
+    } else {
+      this.supplierCategoryCode = null;
+      this.supplierCategoryName = null;
+      this.supplierCategoryDepth = null;
+    }
 
-    // 9. 사용자 쿠팡가 (실제 API 상품은 null로 시작!)
+    // 쿠팡 카테고리 (사용자 선택 전까지 null!)
+    this.coupangCategoryCode = rawData.coupangCategoryCode || null;
+    this.coupangFeeRate = rawData.coupangFeeRate !== undefined ? rawData.coupangFeeRate : null;
+    this.coupangFeeStatus = rawData.coupangFeeStatus || 'UNCONFIRMED';
+
+    // 9. 사용자 쿠팡가
     if (rawData.userCoupangPrice !== undefined && rawData.userCoupangPrice !== null) {
       this.userCoupangPrice = Number(rawData.userCoupangPrice);
       this.priceStatus = 'CONFIRMED_USER_INPUT';
     } else {
       this.userCoupangPrice = null;
       this.priceStatus = 'UNCONFIRMED';
+    }
+
+    // 10. 최저판매준수가격 위반 검증 (minResaleViolation)
+    if (this.userCoupangPrice !== null && this.minResalePrice > 0 && this.userCoupangPrice < this.minResalePrice) {
+      this.minResaleViolation = true;
+    } else {
+      this.minResaleViolation = false;
     }
   }
 }
@@ -285,6 +324,7 @@ export class MockDomeProductAdapter {
     const supplyPrice = Number(mockItem.price || mockItem.wholesalePrice || 0);
     const shippingFee = Number(mockItem.deliPrice ?? mockItem.wholesaleShippingFee ?? 3000);
     const coupangPrice = Number(mockItem.defaultCoupangPrice ?? mockItem.userCoupangPrice ?? (supplyPrice ? Math.round((supplyPrice + shippingFee) * 1.5 / 100) * 100 : 0));
+    const mockCat = String(mockItem.category || mockItem.categoryCode || '1002');
 
     return {
       isMock: true,
@@ -313,7 +353,7 @@ export class MockDomeProductAdapter {
       },
       seller: {
         rank: mockItem.sellerRank ?? 1,
-        vacation: mockItem.sellerVacation ?? false
+        vacation: mockItem.sellerVacation || null
       },
       channel: {
         supply: mockItem.agencyFlag === 'Y' || mockItem.channelSupply === true || mockItem.channelSupply === 'Y'
@@ -324,12 +364,17 @@ export class MockDomeProductAdapter {
         }
       },
       category: {
-        current: String(mockItem.category || mockItem.categoryCode || '1002')
+        current: {
+          code: mockCat,
+          name: 'MOCK카테고리',
+          depth: 2
+        }
       },
       thumb: {
         large: mockItem.thumb || mockItem.imageUrl || 'https://via.placeholder.com/80'
       },
-      userCoupangPrice: coupangPrice
+      userCoupangPrice: coupangPrice,
+      coupangCategoryCode: mockCat
     };
   }
 }
