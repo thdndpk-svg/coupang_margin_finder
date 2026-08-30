@@ -1,66 +1,100 @@
 /**
- * STEP 2.1: 소싱 안전성 및 판매검증 상태 판단 유틸리티 (validators.js)
+ * STEP 2.1.2: 상품 안전성 및 리스크 검증기 (validators.js)
+ * - null <= 0 이 true가 되는 자바스크립트 버그 완벽 방지
+ * - 데이터 미확인 시 자동 품절/비추천 처리 금지
  */
-
-import { VERIFICATION_STATUS } from './constants.js';
 
 export class ProductValidator {
   /**
-   * 도매상품의 안전성 요소들을 검증하여 종합 판매검증 상태 반환
-   * @param {Object} product - DomeProductModel 객체
+   * @param {DomeProductModel} product
+   * @returns {Object} { status, label, issues, isSafeToSell }
    */
   static evaluate(product) {
     const issues = [];
-    let status = VERIFICATION_STATUS.PASSED;
+    let status = 'APPROVED'; // APPROVED(검증완료), CONDITIONAL(조건부), PENDING(확인필요), REJECTED(판매비추천)
 
-    // 1. 판매중 여부
-    if (product.status !== '판매중') {
-      issues.push(`판매 상태 이상 (${product.status})`);
-      status = VERIFICATION_STATUS.NOT_RECOMMENDED;
+    if (!product) {
+      return {
+        status: 'PENDING',
+        label: '데이터 확인필요',
+        issues: ['상품 데이터가 존재하지 않습니다.'],
+        isSafeToSell: false
+      };
     }
 
-    // 2. 위탁판매 가능 여부
-    if (product.dropShippingStatus === '위탁 불가') {
-      issues.push('위탁판매 불가 상품');
-      status = VERIFICATION_STATUS.NOT_RECOMMENDED;
-    } else if (product.dropShippingStatus === '확인 필요') {
-      issues.push('위탁판매 여부 확인 필요');
-      if (status !== VERIFICATION_STATUS.NOT_RECOMMENDED) {
-        status = VERIFICATION_STATUS.CONDITIONAL;
-      }
+    // 1. 판매 상태 점검 (null 일 경우 판매불가로 오판하지 않음)
+    if (product.status === null) {
+      issues.push('판매상태 확인필요');
+      status = 'PENDING';
+    } else if (product.status !== '판매중') {
+      issues.push(`판매중지 상태 (${product.status})`);
+      status = 'REJECTED';
     }
 
-    // 3. 이미지 사용권
-    if (product.imageLicenseStatus === '사용불가') {
-      issues.push('이미지 사용 불가');
-      status = VERIFICATION_STATUS.NOT_RECOMMENDED; // 자동 승인 금지
-    } else if (product.imageLicenseStatus === '확인불가') {
-      issues.push('이미지 사용권 확인 필요');
-      if (status !== VERIFICATION_STATUS.NOT_RECOMMENDED) {
-        status = VERIFICATION_STATUS.CONDITIONAL;
-      }
+    // 2. 도매매 위탁배송 가능 여부
+    if (product.dropShippingStatus === '확인 필요') {
+      issues.push('위탁 가능여부 확인필요');
+      if (status !== 'REJECTED') status = 'PENDING';
+    } else if (!product.isDropShippingAvailable) {
+      issues.push('도매매 위탁배송 불가 상품');
+      status = 'REJECTED';
     }
 
-    // 4. 공급사 등급 (1~4등급 우선 검토, 5~9등급 위험/보류)
-    if (product.sellerRank > 4) {
-      issues.push(`공급사 등급 주의 (${product.sellerRank}등급)`);
-      if (status === VERIFICATION_STATUS.PASSED) {
-        status = VERIFICATION_STATUS.CONDITIONAL;
-      }
+    // 3. 재고 수량 점검 (null <= 0 버그 완벽 방지!)
+    if (product.inventoryQty === null) {
+      issues.push('재고 수량 확인필요');
+      if (status !== 'REJECTED') status = 'PENDING';
+    } else if (product.inventoryQty <= 0) {
+      issues.push('품절 상태 (재고 0개)');
+      status = 'REJECTED';
+    } else if (product.inventoryQty < 10) {
+      issues.push(`재고 소량 (${product.inventoryQty}개)`);
+      if (status === 'APPROVED') status = 'CONDITIONAL';
     }
 
-    // 5. 재고 수량
-    if (product.inventoryQty <= 0) {
-      issues.push('품절 (재고 0)');
-      status = VERIFICATION_STATUS.PENDING;
+    // 4. 공급사 등급 점검
+    if (product.sellerRank === null) {
+      issues.push('공급사 등급 확인필요');
+      if (status === 'APPROVED') status = 'CONDITIONAL';
+    } else if (product.sellerRank > 5) {
+      issues.push(`공급사 등급 저하 (${product.sellerRank}등급)`);
+      if (status === 'APPROVED') status = 'CONDITIONAL';
     }
+
+    // 5. 이미지 사용권
+    if (product.imageLicenseStatus === '확인불가') {
+      issues.push('이미지 사용권 확인필요');
+      if (status === 'APPROVED') status = 'CONDITIONAL';
+    } else if (product.imageLicenseStatus === '사용불가') {
+      issues.push('이미지 사용권 없음');
+      status = 'REJECTED';
+    }
+
+    // 6. 배송비 확인 여부
+    if (product.wholesaleShippingFee === null) {
+      issues.push('배송비 금액 미확인');
+      if (status !== 'REJECTED') status = 'PENDING';
+    }
+
+    // 7. 공급단위 확인
+    if (product.supplyUnitStatus === '공급단위확인필요') {
+      issues.push('공급단위 확인필요');
+      if (status === 'APPROVED') status = 'CONDITIONAL';
+    } else if (product.supplyUnitStatus === '구성확인필요') {
+      issues.push(`공급단위 ${product.supplyUnit}개 묶음 (구성확인필요)`);
+      if (status === 'APPROVED') status = 'CONDITIONAL';
+    }
+
+    let label = '검증완료';
+    if (status === 'CONDITIONAL') label = '조건부 승인';
+    else if (status === 'PENDING') label = '확인필요';
+    else if (status === 'REJECTED') label = '판매비추천';
 
     return {
       status,
-      statusName: status.name,
-      color: status.color,
+      label,
       issues,
-      isPassed: status.id === 'PASSED'
+      isSafeToSell: status === 'APPROVED' || status === 'CONDITIONAL'
     };
   }
 }
