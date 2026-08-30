@@ -1,5 +1,6 @@
 /**
- * STEP 2.1.2: 도매꾹/도매매 Open API 클라이언트 & MOCK 데이터 (api.js)
+ * STEP 2.1.4: 도매꾹/도매매 Open API 클라이언트 & MOCK 데이터 (api.js)
+ * - status: 'MOCK' | 'PROXY_NOT_CONFIGURED' | 'READY' | 'CONNECTED' | 'ERROR'
  */
 
 import { DomeProductModel, MockDomeProductAdapter } from './models.js';
@@ -175,12 +176,24 @@ export const SAMPLE_MOCK_PRODUCTS = [
 export class DomeApiClient {
   constructor() {
     this.apiKey = null;
+    this.proxyUrl = null;
     this.mode = 'MOCK';
+    this.status = 'MOCK';
   }
 
-  setApiKey(key) {
+  setApiKey(key, proxyUrl = null) {
     this.apiKey = key;
-    this.mode = key ? 'REAL_API' : 'MOCK';
+    this.proxyUrl = proxyUrl;
+    if (key && proxyUrl) {
+      this.mode = 'REAL_API';
+      this.status = 'CONNECTED';
+    } else if (key || proxyUrl) {
+      this.mode = 'REAL_API';
+      this.status = 'PROXY_NOT_CONFIGURED';
+    } else {
+      this.mode = 'MOCK';
+      this.status = 'MOCK';
+    }
   }
 
   async getItemList() {
@@ -192,13 +205,25 @@ export class DomeApiClient {
 
       return {
         mode: 'MOCK',
+        status: 'MOCK',
         raw: SAMPLE_MOCK_PRODUCTS,
         parsed
       };
     }
 
+    if (this.status === 'PROXY_NOT_CONFIGURED') {
+      return {
+        mode: 'REAL_API',
+        status: 'PROXY_NOT_CONFIGURED',
+        statusLabel: 'API Key / Proxy 연결대기',
+        raw: [],
+        parsed: []
+      };
+    }
+
     return {
       mode: 'REAL_API',
+      status: 'CONNECTED',
       raw: [],
       parsed: []
     };
@@ -210,13 +235,25 @@ export class DomeApiClient {
       const v46Object = MockDomeProductAdapter.adapt(mockItem);
       return {
         mode: 'MOCK',
+        status: 'MOCK',
         raw: mockItem,
         parsed: new DomeProductModel(v46Object)
       };
     }
 
+    if (this.status === 'PROXY_NOT_CONFIGURED') {
+      return {
+        mode: 'REAL_API',
+        status: 'PROXY_NOT_CONFIGURED',
+        statusLabel: 'API Key / Proxy 연결대기',
+        raw: null,
+        parsed: null
+      };
+    }
+
     return {
       mode: 'REAL_API',
+      status: 'CONNECTED',
       raw: null,
       parsed: null
     };

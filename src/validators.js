@@ -1,15 +1,16 @@
 /**
- * STEP 2.1.3: 상품 안전성 및 리스크 검증기 (validators.js)
- * - null <= 0 이 true가 되는 자바스크립트 버그 완벽 방지
- * - APPROVED 라벨을 보수적인 '공급조건 1차검증 완료'로 변경
+ * STEP 2.1.4: 상품 안전성 및 리스크 검증기 (validators.js)
+ * - 동적 최저판매준수가격 위반(dynamicViolation) 반영
+ * - APPROVED 라벨: '공급조건 1차검증 완료' / 특이사항 없음 문구: '공급조건 1차 점검 특이사항 없음'
  */
 
 export class ProductValidator {
   /**
    * @param {DomeProductModel} product
+   * @param {Boolean} dynamicViolation
    * @returns {Object} { status, label, issues, isSafeToSell }
    */
-  static evaluate(product) {
+  static evaluate(product, dynamicViolation = false) {
     const issues = [];
     let status = 'APPROVED'; // APPROVED, CONDITIONAL, PENDING, REJECTED
 
@@ -22,7 +23,7 @@ export class ProductValidator {
       };
     }
 
-    // 1. 판매 상태 점검 (null 일 경우 판매불가로 오판하지 않음)
+    // 1. 판매 상태 점검
     if (product.status === null) {
       issues.push('판매상태 확인필요');
       status = 'PENDING';
@@ -40,7 +41,7 @@ export class ProductValidator {
       status = 'REJECTED';
     }
 
-    // 3. 재고 수량 점검 (null <= 0 버그 완벽 방지!)
+    // 3. 재고 수량 점검 (null <= 0 방지)
     if (product.inventoryQty === null) {
       issues.push('재고 수량 확인필요');
       if (status !== 'REJECTED') status = 'PENDING';
@@ -85,9 +86,10 @@ export class ProductValidator {
       if (status === 'APPROVED') status = 'CONDITIONAL';
     }
 
-    // 8. 최저판매준수가격 위반 확인
-    if (product.minResaleViolation) {
-      issues.push(`최저판매준수가격 위반 (${product.userCoupangPrice?.toLocaleString()}원 < 준수가 ${product.minResalePrice?.toLocaleString()}원)`);
+    // 8. 최저판매준수가격 위반 확인 (동적 연동)
+    const isViolation = dynamicViolation || product.minResaleViolation;
+    if (isViolation) {
+      issues.push(`최저판매준수가격 위반 (준수가 ${product.minResalePrice?.toLocaleString()}원 미만)`);
       status = 'REJECTED';
     }
 

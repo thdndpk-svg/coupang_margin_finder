@@ -1,8 +1,10 @@
 /**
- * STEP 2.1.3: 메인 대시보드 및 4개 탭 통합 컨트롤러 (main.js)
- * - nullableNumber() 헬퍼 도입 (0원 오판 완전 방지)
- * - 수수료 배지 실제 status 연동 ([가정], [직접입력], [확인], [미확인])
- * - 최저판매준수가격 위반 경고 표시 (minResaleViolation)
+ * STEP 2.1.4: 메인 대시보드 및 4개 탭 통합 컨트롤러 (main.js)
+ * - 최저판매준수가격 동적 위반 검증 (checkMinResaleViolation)
+ * - calc.feeStatus 기반 Single Source of Truth 수수료 배지 표시
+ * - 계산불가(profitTier: null) 상품 C급/적자 카운트 분리 (unknownCnt)
+ * - 빠른 원가배수 버튼 null 원가/배송비 보호
+ * - Drawer 0원 / 0% strict null 판정
  */
 
 import { domeApiClient } from './api.js';
@@ -11,12 +13,18 @@ import { configManager } from './config.js';
 import { bookmarkStore } from './storage.js';
 import { ProductValidator } from './validators.js';
 
-const BUILD_SHA = (import.meta && import.meta.env && import.meta.env.VITE_BUILD_SHA) || 'dev';
+const BUILD_SHA = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BUILD_SHA) || 'dev';
 
 export function nullableNumber(val) {
   if (val === '' || val === null || val === undefined) return null;
   const n = Number(val);
   return Number.isFinite(n) ? n : null;
+}
+
+export function checkMinResaleViolation(sellingPrice, minResalePrice) {
+  if (sellingPrice === null || sellingPrice === undefined) return false;
+  if (minResalePrice === null || minResalePrice === undefined || minResalePrice <= 0) return false;
+  return Number(sellingPrice) < Number(minResalePrice);
 }
 
 export function getFeeStatusBadgeText(status) {
@@ -61,8 +69,9 @@ if (typeof document !== 'undefined') {
 }
 
 function updateBuildShaDisplay() {
+  if (typeof document === 'undefined') return;
   document.querySelectorAll('.build-sha-tag').forEach(el => {
-    el.textContent = `v2.1.3 · Build ${BUILD_SHA}`;
+    el.textContent = `v2.1.4 · Build ${BUILD_SHA}`;
   });
 }
 
@@ -70,6 +79,7 @@ function updateBuildShaDisplay() {
 /* 1. Tab Navigation                                                          */
 /* -------------------------------------------------------------------------- */
 function initTabs() {
+  if (typeof document === 'undefined') return;
   const tabBtns = document.querySelectorAll('.tab-btn');
   const tabContents = document.querySelectorAll('.tab-content');
 
@@ -102,6 +112,7 @@ async function loadProducts() {
     return {
       item,
       coupangPrice: defaultCoupangPrice,
+      minResaleViolation: checkMinResaleViolation(defaultCoupangPrice, item.minResalePrice),
       calc: null,
       verification: ProductValidator.evaluate(item)
     };
@@ -110,13 +121,14 @@ async function loadProducts() {
 
 function recalculateAllProducts() {
   state.products.forEach(p => {
+    p.minResaleViolation = checkMinResaleViolation(p.coupangPrice, p.item.minResalePrice);
     p.calc = MarginCalculator.calculate({
       product: p.item,
       userCoupangPrice: p.coupangPrice,
       categoryCode: p.item.coupangCategoryCode,
       shippingType: 'DROP_SHIPPING_FREE'
     });
-    p.verification = ProductValidator.evaluate(p.item);
+    p.verification = ProductValidator.evaluate(p.item, p.minResaleViolation);
   });
 }
 
@@ -179,12 +191,14 @@ function renderAll() {
 }
 
 function renderHeaderStats() {
-  let gradeACnt = 0, gradeBCnt = 0, gradeCCnt = 0;
+  if (typeof document === 'undefined') return;
+  let gradeACnt = 0, gradeBCnt = 0, gradeCCnt = 0, unknownCnt = 0;
   state.products.forEach(p => {
     const tierId = p.calc.profitTier?.id;
     if (tierId === 'GRADE_A') gradeACnt++;
     else if (tierId === 'GRADE_B') gradeBCnt++;
-    else gradeCCnt++;
+    else if (tierId === 'GRADE_C' || tierId === 'DEFICIT') gradeCCnt++;
+    else unknownCnt++; // profitTier === null (계산불가/확인필요)
   });
 
   const bookmarks = bookmarkStore.getBookmarks();
@@ -200,6 +214,7 @@ function renderHeaderStats() {
 /* 3. Render Sourcing Dashboard Table                                         */
 /* -------------------------------------------------------------------------- */
 function renderSourcingTable() {
+  if (typeof document === 'undefined') return;
   const tbody = document.getElementById('sourcing-table-body');
   if (!tbody) return;
   tbody.innerHTML = '';
@@ -221,11 +236,11 @@ function renderSourcingTable() {
 
     const reqQtyText = calc.requiredDailySales !== null ? `${calc.requiredDailySales}개/일` : '달성불가';
 
-    // 수수료 배지 텍스트
-    const feeBadgeText = getFeeStatusBadgeText(item.coupangFeeStatus);
+    // 수수료 배지 텍스트 (calc.feeStatus 사용 Single Source of Truth!)
+    const feeBadgeText = getFeeStatusBadgeText(calc.feeStatus);
 
     // 최저판매준수가격 위반 경고
-    const violationBadge = item.minResaleViolation ? `<span style="color:var(--accent-red); font-size:0.75rem; font-weight:bold; margin-left:4px;">[최저판매준수가격 위반]</span>` : '';
+    const violationBadge = p.minResaleViolation ? `<span style="color:var(--accent-red); font-size:0.75rem; font-weight:bold; margin-left:4px;">[최저판매준수가격 위반]</span>` : '';
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -313,6 +328,7 @@ function renderSourcingTable() {
 }
 
 function initFilterControls() {
+  if (typeof document === 'undefined') return;
   document.getElementById('flt-category').addEventListener('change', e => {
     state.filters.category = e.target.value;
     renderAll();
@@ -349,6 +365,7 @@ function initFilterControls() {
 function initBookmarkTab() {}
 
 function renderBookmarks() {
+  if (typeof document === 'undefined') return;
   const tbody = document.getElementById('bookmark-table-body');
   if (!tbody) return;
   tbody.innerHTML = '';
@@ -380,10 +397,10 @@ function renderBookmarks() {
       <td style="font-weight: 600; font-size: 0.85rem;">${bm.title || '제목없음'}</td>
       <td>${bm.wholesalePrice ? bm.wholesalePrice.toLocaleString() + '원' : '-'}</td>
       <td>${bm.userCoupangPrice ? bm.userCoupangPrice.toLocaleString() + '원' : '미입력'}</td>
-      <td style="font-weight:700; color:var(--accent-green);">${calc.basicProfit ? calc.basicProfit.toLocaleString() + '원' : '-'}</td>
-      <td style="color:#7dd3fc;">${calc.conservativeProfit ? calc.conservativeProfit.toLocaleString() + '원' : '-'}</td>
-      <td>${calc.marginRate ? calc.marginRate + '%' : '-'}</td>
-      <td>${calc.roi ? calc.roi + '%' : '-'}</td>
+      <td style="font-weight:700; color:var(--accent-green);">${calc.basicProfit !== null ? calc.basicProfit.toLocaleString() + '원' : '-'}</td>
+      <td style="color:#7dd3fc;">${calc.conservativeProfit !== null ? calc.conservativeProfit.toLocaleString() + '원' : '-'}</td>
+      <td>${calc.marginRate !== null ? calc.marginRate + '%' : '-'}</td>
+      <td>${calc.roi !== null ? calc.roi + '%' : '-'}</td>
       <td style="font-weight:700; color:var(--accent-blue);">${reqQtyText}</td>
       <td style="font-size:0.75rem; color:var(--text-muted);">${bm.savedAt ? bm.savedAt.substring(0, 10) : '-'}</td>
       <td style="text-align:center;">
@@ -407,6 +424,7 @@ function renderBookmarks() {
 /* 5. Tab 3: Detailed Simulator 기능                                          */
 /* -------------------------------------------------------------------------- */
 function initSimulatorTab() {
+  if (typeof document === 'undefined') return;
   const select = document.getElementById('sim-product-select');
   if (!select) return;
 
@@ -428,8 +446,14 @@ function initSimulatorTab() {
   document.querySelectorAll('.btn-quick-ratio').forEach(btn => {
     btn.addEventListener('click', () => {
       const ratio = Number(btn.getAttribute('data-ratio'));
-      const wholesale = nullableNumber(document.getElementById('sim-wholesale-price').value) || 0;
-      const shipping = nullableNumber(document.getElementById('sim-wholesale-shipping').value) || 0;
+      const wholesale = nullableNumber(document.getElementById('sim-wholesale-price').value);
+      const shipping = nullableNumber(document.getElementById('sim-wholesale-shipping').value);
+
+      if (wholesale === null || shipping === null) {
+        alert('공급가/배송비 확인 후 배수 계산 가능합니다.');
+        return;
+      }
+
       const totalCost = wholesale + shipping;
       document.getElementById('sim-coupang-price').value = Math.round((totalCost * ratio) / 100) * 100;
       renderSimulator();
@@ -446,6 +470,7 @@ function initSimulatorTab() {
 }
 
 function populateSimulatorDropdown() {
+  if (typeof document === 'undefined') return;
   const select = document.getElementById('sim-product-select');
   if (!select) return;
 
@@ -468,6 +493,7 @@ function populateSimulatorDropdown() {
 }
 
 function renderSimulator() {
+  if (typeof document === 'undefined') return;
   const itemNo = document.getElementById('sim-product-select')?.value;
   const targetP = state.products.find(p => String(p.item.itemNo) === String(itemNo));
   if (!targetP) return;
@@ -512,7 +538,7 @@ function renderSimulator() {
 
   // 손익분기 역산
   const breakEven = MarginCalculator.calcBreakEvenPrice({ wholesalePrice: wholesale, wholesaleShippingFee: shipping, feeRate: calc.feeRate });
-  document.getElementById('sim-breakeven-price').textContent = breakEven.value !== null ? `${breakEven.value.toLocaleString()} 원` : '수수료확인필요';
+  document.getElementById('sim-breakeven-price').textContent = breakEven.value !== null ? `${breakEven.value.toLocaleString()} 원` : breakEven.status;
 
   // 필요 수량
   const reqQtyText = calc.requiredDailySales !== null ? `${calc.requiredDailySales} 개/일` : '달성불가';
@@ -520,15 +546,20 @@ function renderSimulator() {
 
   // 등급 뱃지
   const tierBadge = document.getElementById('sim-tier-badge');
-  if (tierBadge && calc.profitTier) {
-    tierBadge.className = `badge-tier ${calc.profitTier.badgeClass}`;
-    tierBadge.textContent = calc.profitTier.name;
+  if (tierBadge) {
+    if (calc.profitTier) {
+      tierBadge.className = `badge-tier ${calc.profitTier.badgeClass}`;
+      tierBadge.textContent = calc.profitTier.name;
+    } else {
+      tierBadge.className = `badge-tier badge-exclude`;
+      tierBadge.textContent = '확인필요';
+    }
   }
 
-  // 수수료 상태 배지
+  // 수수료 상태 배지 (calc.feeStatus 사용!)
   const feeStatusBadge = document.getElementById('sim-fee-status-badge');
   if (feeStatusBadge) {
-    feeStatusBadge.textContent = categoryCode ? '임시 가정' : '미확인';
+    feeStatusBadge.textContent = getFeeStatusBadgeText(calc.feeStatus);
   }
 
   // 하루 5/10/20/30개 판매수량 시뮬레이션
@@ -549,7 +580,7 @@ function renderSimulator() {
     if (targetPriceObj.value !== null) {
       revEl.innerHTML = `건당 <strong>${targetProfitVal.toLocaleString()}원</strong> 이익을 위해 쿠팡 판매가 <strong>${targetPriceObj.value.toLocaleString()}원</strong> 필요 (하루 ${targetQtyVal}개 판매시 일 순수익 ${(targetProfitVal * targetQtyVal).toLocaleString()}원)`;
     } else {
-      revEl.textContent = '수수료 미확인으로 계산 불가';
+      revEl.textContent = '수수료 또는 원가 미확인으로 계산 불가';
     }
   }
 }
@@ -558,6 +589,7 @@ function renderSimulator() {
 /* 6. Tab 4: Settings 기능                                                    */
 /* -------------------------------------------------------------------------- */
 function initSettingsTab() {
+  if (typeof document === 'undefined') return;
   const saveBtn = document.getElementById('btn-save-settings');
   const resetBtn = document.getElementById('btn-reset-settings');
 
@@ -595,6 +627,7 @@ function initSettingsTab() {
 /* 7. Detail Drawer Modal 기능                                                */
 /* -------------------------------------------------------------------------- */
 function initDrawer() {
+  if (typeof document === 'undefined') return;
   const closeBtn = document.getElementById('btn-close-drawer');
   const modal = document.getElementById('detail-modal');
 
@@ -609,6 +642,7 @@ function initDrawer() {
 }
 
 function openDrawerForItem(itemNo) {
+  if (typeof document === 'undefined') return;
   const targetP = state.products.find(p => String(p.item.itemNo) === String(itemNo));
   if (!targetP) return;
 
@@ -632,11 +666,11 @@ function openDrawerForItem(itemNo) {
       <div>
         <div style="font-weight:bold;">${item.title || ''}</div>
         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
-          도매가: ${item.wholesalePrice ? item.wholesalePrice.toLocaleString() + '원' : '확인필요'} |
-          배송비: ${item.wholesaleShippingFee ? item.wholesaleShippingFee.toLocaleString() + '원' : '확인필요'}
+          도매가: ${item.wholesalePrice !== null ? item.wholesalePrice.toLocaleString() + '원' : '확인필요'} |
+          배송비: ${item.wholesaleShippingFee !== null ? item.wholesaleShippingFee.toLocaleString() + '원' : '확인필요'}
         </div>
         <div style="margin-top:4px;">
-          <span class="badge-tier ${calc.profitTier ? calc.profitTier.badgeClass : ''}">${calc.profitTier ? calc.profitTier.name : '확인필요'}</span>
+          <span class="badge-tier ${calc.profitTier ? calc.profitTier.badgeClass : 'badge-exclude'}">${calc.profitTier ? calc.profitTier.name : '확인필요'}</span>
           <span style="font-size:0.75rem; color:var(--accent-blue); margin-left:6px;">검증: ${ver.label}</span>
         </div>
       </div>
@@ -644,13 +678,13 @@ function openDrawerForItem(itemNo) {
 
     <table class="product-table" style="margin-bottom:14px;">
       <tbody>
-        <tr><th>쿠팡 판매예정가</th><td><strong>${calc.coupangPrice ? calc.coupangPrice.toLocaleString() + ' 원' : '미입력'}</strong></td></tr>
-        <tr><th>총 원가</th><td>${calc.totalCost ? calc.totalCost.toLocaleString() + ' 원' : '-'}</td></tr>
-        <tr><th>쿠팡 수수료</th><td>${calc.coupangFee ? calc.coupangFee.toLocaleString() + ' 원' : '-'} <span style="font-size:0.7rem; color:var(--accent-yellow);">${getFeeStatusBadgeText(item.coupangFeeStatus)}</span></td></tr>
-        <tr><th>간이과세 세금충당(1.5%)</th><td>${calc.taxReserve ? calc.taxReserve.toLocaleString() + ' 원' : '-'}</td></tr>
-        <tr><th>기본 상품이익</th><td style="font-weight:bold; color:var(--accent-green);">${calc.basicProfit ? calc.basicProfit.toLocaleString() + ' 원' : '-'}</td></tr>
-        <tr><th>보수 상품이익</th><td style="color:#7dd3fc;">${calc.conservativeProfit ? calc.conservativeProfit.toLocaleString() + ' 원' : '-'}</td></tr>
-        <tr><th>마진율 / ROI</th><td>${calc.marginRate ? calc.marginRate + '%' : '-'} / ${calc.roi ? calc.roi + '%' : '-'}</td></tr>
+        <tr><th>쿠팡 판매예정가</th><td><strong>${calc.coupangPrice !== null ? calc.coupangPrice.toLocaleString() + ' 원' : '미입력'}</strong></td></tr>
+        <tr><th>총 원가</th><td>${calc.totalCost !== null ? calc.totalCost.toLocaleString() + ' 원' : '-'}</td></tr>
+        <tr><th>쿠팡 수수료</th><td>${calc.coupangFee !== null ? calc.coupangFee.toLocaleString() + ' 원' : '-'} <span style="font-size:0.7rem; color:var(--accent-yellow);">${getFeeStatusBadgeText(calc.feeStatus)}</span></td></tr>
+        <tr><th>간이과세 세금충당(1.5%)</th><td>${calc.taxReserve !== null ? calc.taxReserve.toLocaleString() + ' 원' : '-'}</td></tr>
+        <tr><th>기본 상품이익</th><td style="font-weight:bold; color:var(--accent-green);">${calc.basicProfit !== null ? calc.basicProfit.toLocaleString() + ' 원' : '-'}</td></tr>
+        <tr><th>보수 상품이익</th><td style="color:#7dd3fc;">${calc.conservativeProfit !== null ? calc.conservativeProfit.toLocaleString() + ' 원' : '-'}</td></tr>
+        <tr><th>마진율 / ROI</th><td>${calc.marginRate !== null ? calc.marginRate + '%' : '-'} / ${calc.roi !== null ? calc.roi + '%' : '-'}</td></tr>
         <tr><th>30만원 필요수량</th><td style="font-weight:bold; color:var(--accent-blue);">${calc.requiredDailySales !== null ? calc.requiredDailySales + ' 개/일' : '달성불가'}</td></tr>
       </tbody>
     </table>
@@ -658,7 +692,7 @@ function openDrawerForItem(itemNo) {
     <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:6px; border:1px solid var(--panel-border);">
       <div style="font-size:0.8rem; font-weight:bold; margin-bottom:4px;">🛡️ 상품 안전성 검증 점검 리스트</div>
       <ul style="padding-left:14px; font-size:0.78rem; list-style:none;">
-        ${issuesList || '<li style="color:var(--accent-green);">• 특이사항 없음 (검증완료)</li>'}
+        ${issuesList || '<li style="color:var(--accent-green);">• 공급조건 1차 점검 특이사항 없음</li>'}
       </ul>
     </div>
   `;

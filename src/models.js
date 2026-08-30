@@ -1,9 +1,8 @@
 /**
- * STEP 2.1.3: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
- * - 도매매 카테고리와 쿠팡 카테고리 완전 분리 (supplierCategoryCode vs coupangCategoryCode)
+ * STEP 2.1.4: 도매꾹/도매매 getItemView v4.6 공식 API 응답 파서 & MOCK 어댑터 (models.js)
+ * - MOCK 수수료 상태 TEMPORARY_ASSUMPTION 설정
  * - seller.vacation 객체 (startDate, endDate, days) 파싱 및 날짜 판정
- * - 최저판매준수가격(minumum) 위반 검증 (minResaleViolation)
- * - 배송비 금액비노출 최우선 파싱 및 알 수 없는 type fallback 제거
+ * - 카테고리 분리 (supplierCategory vs coupangCategory)
  */
 
 export class DomeProductModel {
@@ -98,9 +97,6 @@ export class DomeProductModel {
     }
   }
 
-  /**
-   * 공식 배송비 파서 (금액비노출 최우선 확인 및 허용 type 검증)
-   */
   static parseShippingFee(rawData, orderQty = 1) {
     const deli = rawData.deli?.supply || rawData.deli?.dome || rawData.deli || {};
 
@@ -109,12 +105,10 @@ export class DomeProductModel {
     const rawFee = deli.fee;
     const tbl = deli.tbl;
 
-    // 1. 금액비노출 최우선 판단 (rawFee 숫자가 있어도 무조건 배송비확인필요)
     if (deliType === '금액비노출') {
       return { fee: null, type: '배송비확인필요', status: '미확인', isExact: false };
     }
 
-    // 2. 배송 결제 방식(pay) 최우선 확인
     if (payType === '무료배송') {
       return { fee: 0, type: '무료배송', status: '확인됨', isExact: true };
     }
@@ -127,7 +121,6 @@ export class DomeProductModel {
       return { fee: null, type: '배송조건 확인필요', status: '미확인', isExact: false };
     }
 
-    // 3. 배송비 유형(type) 공식 문자열 처리
     if (deliType === '수량별차등' && tbl) {
       const fee = DomeProductModel.parseTieredShippingFee(tbl, orderQty);
       if (fee !== null) {
@@ -146,13 +139,9 @@ export class DomeProductModel {
       return { fee: Number(rawFee), type: '고정배송비', status: '확인됨', isExact: true };
     }
 
-    // 알 수 없는 type이면 rawFee 숫자가 있어도 generic fallback을 적용하지 않음!
     return { fee: null, type: '배송비확인필요', status: '미확인', isExact: false };
   }
 
-  /**
-   * seller.vacation 객체 날짜 파서
-   */
   static parseSellerVacation(vacationObj, now = new Date()) {
     if (!vacationObj || typeof vacationObj !== 'object') {
       return { isVacation: null, statusLabel: '확인정보 없음', details: null };
@@ -184,14 +173,12 @@ export class DomeProductModel {
     this.raw = rawData;
     this.isMock = Boolean(rawData.isMock);
 
-    // 1. getItemView v4.6 실제 필드 파싱 (basis.no, basis.status, basis.title)
     const basis = rawData.basis || {};
     this.itemNo = String(basis.no || rawData.itemNo || '');
     this.title = basis.title !== undefined ? String(basis.title) : null;
     this.status = basis.status !== undefined && basis.status !== null ? String(basis.status) : null;
     this.statusLabel = this.status ? this.status : '판매상태 확인필요';
 
-    // 2. 가격 파싱 (price.supply, price.resale.minumum, price.resale.Recommand)
     const priceObj = rawData.price || {};
     const parsedSupply = DomeProductModel.parseSupplyPrice(priceObj.supply);
 
@@ -207,13 +194,11 @@ export class DomeProductModel {
       ? Number(priceObj.resale.Recommand)
       : 0;
 
-    // 3. 배송비 파싱
     const parsedShipping = DomeProductModel.parseShippingFee(rawData);
     this.wholesaleShippingFee = parsedShipping.fee;
     this.shippingTypeLabel = parsedShipping.type;
     this.isShippingExact = parsedShipping.isExact;
 
-    // 4. 수량 & 공급단위 파싱 (qty.inventory, qty.supplyUnit)
     const qtyObj = rawData.qty || {};
     this.inventoryQty = qtyObj.inventory !== undefined && qtyObj.inventory !== null
       ? Number(qtyObj.inventory)
@@ -232,7 +217,6 @@ export class DomeProductModel {
       this.supplyUnitStatus = '공급단위확인필요';
     }
 
-    // 5. 공급사 정보 및 seller.vacation 파싱
     const sellerObj = rawData.seller || {};
     this.sellerRank = sellerObj.rank !== undefined && sellerObj.rank !== null
       ? Number(sellerObj.rank)
@@ -243,7 +227,6 @@ export class DomeProductModel {
     this.sellerVacation = parsedVacation.isVacation;
     this.sellerVacationStatus = parsedVacation.statusLabel;
 
-    // 6. 도매매 판매채널 파싱 (channel.supply)
     const channelObj = rawData.channel || {};
     const channelSupply = channelObj.supply;
 
@@ -259,7 +242,6 @@ export class DomeProductModel {
     }
     this.isDropShippingAvailable = this.dropShippingStatus === '위탁 가능';
 
-    // 7. 이미지 사용권 파싱 (desc.license.usable)
     const descObj = rawData.desc || {};
     const licenseUsable = descObj.license?.usable;
     if (licenseUsable === true) {
@@ -270,12 +252,10 @@ export class DomeProductModel {
       this.imageLicenseStatus = '확인불가';
     }
 
-    // 8. 썸네일 & 도매매 카테고리 / 쿠팡 카테고리 분리 파싱
     const thumbObj = rawData.thumb || {};
     this.imageUrl = thumbObj.large || thumbObj.original || 'https://via.placeholder.com/80';
     this.itemUrl = this.itemNo ? `https://domeggook.com/${this.itemNo}` : '#';
 
-    // 도매매 카테고리 파싱 (category.current 객체/primitive 호환)
     const categoryCurrent = rawData.category?.current;
     if (categoryCurrent && typeof categoryCurrent === 'object') {
       this.supplierCategoryCode = String(categoryCurrent.code || '');
@@ -291,12 +271,10 @@ export class DomeProductModel {
       this.supplierCategoryDepth = null;
     }
 
-    // 쿠팡 카테고리 (사용자 선택 전까지 null!)
     this.coupangCategoryCode = rawData.coupangCategoryCode || null;
     this.coupangFeeRate = rawData.coupangFeeRate !== undefined ? rawData.coupangFeeRate : null;
-    this.coupangFeeStatus = rawData.coupangFeeStatus || 'UNCONFIRMED';
+    this.coupangFeeStatus = rawData.coupangFeeStatus || (this.isMock ? 'TEMPORARY_ASSUMPTION' : 'UNCONFIRMED');
 
-    // 9. 사용자 쿠팡가
     if (rawData.userCoupangPrice !== undefined && rawData.userCoupangPrice !== null) {
       this.userCoupangPrice = Number(rawData.userCoupangPrice);
       this.priceStatus = 'CONFIRMED_USER_INPUT';
@@ -305,18 +283,10 @@ export class DomeProductModel {
       this.priceStatus = 'UNCONFIRMED';
     }
 
-    // 10. 최저판매준수가격 위반 검증 (minResaleViolation)
-    if (this.userCoupangPrice !== null && this.minResalePrice > 0 && this.userCoupangPrice < this.minResalePrice) {
-      this.minResaleViolation = true;
-    } else {
-      this.minResaleViolation = false;
-    }
+    this.minResaleViolation = false;
   }
 }
 
-/**
- * MockDomeProductAdapter: MOCK 데이터를 v4.6 공식 객체 구조로 변환
- */
 export class MockDomeProductAdapter {
   static adapt(mockItem) {
     if (!mockItem) return {};
@@ -374,7 +344,8 @@ export class MockDomeProductAdapter {
         large: mockItem.thumb || mockItem.imageUrl || 'https://via.placeholder.com/80'
       },
       userCoupangPrice: coupangPrice,
-      coupangCategoryCode: mockCat
+      coupangCategoryCode: mockCat,
+      coupangFeeStatus: 'TEMPORARY_ASSUMPTION'
     };
   }
 }

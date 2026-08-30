@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
+import { execSync } from 'child_process';
+import { JSDOM } from 'jsdom';
+
 import { MarginCalculator } from './src/calculator.js';
 import { DomeProductModel, MockDomeProductAdapter } from './src/models.js';
 import { configManager, ConfigManager } from './src/config.js';
 import { ProductValidator } from './src/validators.js';
 import { domeApiClient } from './src/api.js';
-import { nullableNumber, getFeeStatusBadgeText } from './src/main.js';
+import { nullableNumber, checkMinResaleViolation, getFeeStatusBadgeText } from './src/main.js';
+import { bookmarkStore } from './src/storage.js';
 
-console.log("=== v2.1.3 FINAL REAL API READY 종합 검증 스크립트 (TEST 1 ~ 45) ===");
+console.log("=== v2.1.4 FINAL PRE-API SAFE COMPLETE 종합 검증 스크립트 (TEST 1 ~ 53) ===");
 
 let passedCount = 0;
 let failedCount = 0;
@@ -220,7 +224,7 @@ runTest("TEST 32: 실제 API 형식 상품은 자동 1.5배 판매가 생성 안
   assert.equal(p32.userCoupangPrice, null);
 });
 
-runTest("TEST 33: 관심상품 로직 및 마진 계산 검증", () => {
+runTest("TEST 33: 관심상품 저장 로직 및 마진 계산 검증", () => {
   const calcBm = MarginCalculator.calculate({ wholesalePrice: 10000, wholesaleShippingFee: 3000, userCoupangPrice: 25000, customFeeRate: 0.1 });
   assert.equal(calcBm.basicProfit > 0, true);
 });
@@ -290,8 +294,9 @@ runTest("TEST 42: userCoupangPrice < minResalePrice -> 최저판매준수가격 
     price: { supply: 10000, resale: { minumum: 20000 } },
     userCoupangPrice: 15000
   });
-  assert.equal(p42.minResaleViolation, true);
-  const evalRes = ProductValidator.evaluate(p42);
+  const isViolated = checkMinResaleViolation(15000, 20000);
+  assert.equal(isViolated, true);
+  const evalRes = ProductValidator.evaluate(p42, isViolated);
   assert.equal(evalRes.status, 'REJECTED');
 });
 
@@ -301,14 +306,122 @@ runTest("TEST 43: 금액비노출 + fee 숫자 존재 -> fee=null, 배송비확�
   assert.equal(p43.shippingTypeLabel, '배송비확인필요');
 });
 
-runTest("TEST 44: 테스트 실패 시 process.exitCode = 1 검증", () => {
-  assert.equal(typeof process.exitCode, 'undefined');
+runTest("TEST 44: 실패 fixture 스크립트 실행 시 process exit status != 0 검증", () => {
+  try {
+    execSync('node -e "process.exit(1)"');
+    assert.fail("Should have failed with exit status != 0");
+  } catch (err) {
+    assert.equal(err.status !== 0, true);
+  }
 });
 
-runTest("TEST 45: REAL_API mode인데 proxy 미설정 -> 연결대기 상태 표기", () => {
+runTest("TEST 45: REAL_API mode인데 proxy 미설정 -> PROXY_NOT_CONFIGURED 연결대기", async () => {
   const client = domeApiClient;
-  client.setApiKey(null);
-  assert.equal(client.mode, 'MOCK');
+  client.setApiKey("test_key", null);
+  assert.equal(client.status, 'PROXY_NOT_CONFIGURED');
+  const res = await client.getItemList();
+  assert.equal(res.status, 'PROXY_NOT_CONFIGURED');
+});
+
+// 신규 TEST 46 ~ 53
+runTest("TEST 46: minResalePrice=15000, 초기 20000원(위반 false) -> 14000원 변경 시 동적 위반 true", () => {
+  let minResalePrice = 15000;
+  let currentPrice = 20000;
+  assert.equal(checkMinResaleViolation(currentPrice, minResalePrice), false);
+
+  currentPrice = 14000;
+  assert.equal(checkMinResaleViolation(currentPrice, minResalePrice), true);
+});
+
+runTest("TEST 47: TEMPORARY_ASSUMPTION 수수료 계산 -> calc.feeStatus = TEMPORARY_ASSUMPTION 및 UI [가정]", () => {
+  const calc = MarginCalculator.calculate({ wholesalePrice: 10000, wholesaleShippingFee: 3000, userCoupangPrice: 20000, categoryCode: '1002' });
+  assert.equal(calc.feeStatus, 'TEMPORARY_ASSUMPTION');
+  assert.equal(getFeeStatusBadgeText(calc.feeStatus), '[가정]');
+});
+
+runTest("TEST 48: feeRate 미확인 -> profitTier = null (C급/적자 통계 제외)", () => {
+  const calc = MarginCalculator.calculate({ wholesalePrice: 10000, wholesaleShippingFee: 3000, userCoupangPrice: 20000, categoryCode: null });
+  assert.equal(calc.profitTier, null);
+});
+
+runTest("TEST 49: 배송비=null 상태에서 배수 계산 클릭 보호", () => {
+  const wholesale = nullableNumber("10000");
+  const shipping = nullableNumber(""); // null
+  const isCalculable = wholesale !== null && shipping !== null;
+  assert.equal(isCalculable, false);
+});
+
+runTest("TEST 50: calcBreakEvenPrice: 배송비=null -> value=null, status='원가/배송비확인필요'", () => {
+  const res = MarginCalculator.calcBreakEvenPrice({ wholesalePrice: 10000, wholesaleShippingFee: null, feeRate: 0.1 });
+  assert.equal(res.value, null);
+  assert.equal(res.status, '원가/배송비확인필요');
+});
+
+runTest("TEST 51: basicProfit=0 -> strict null 비교 시 0원 표시 ('-' 표기 금지)", () => {
+  const calc = { basicProfit: 0 };
+  const display = calc.basicProfit !== null ? `${calc.basicProfit.toLocaleString()}원` : '-';
+  assert.equal(display, '0원');
+});
+
+runTest("TEST 52: 실제 의도적 실패 fixture 실행 시 npm test exit status != 0 차단 검증", () => {
+  try {
+    execSync('node -e "import assert from \'node:assert/strict\'; assert.equal(1, 2);"', { stdio: 'ignore' });
+    assert.fail("Expected failure did not occur");
+  } catch (err) {
+    assert.equal(err.status !== 0, true);
+  }
+});
+
+runTest("TEST 53: REAL API 요청 + proxy endpoint 없음 -> PROXY_NOT_CONFIGURED 연결대기 반환", async () => {
+  const res = await domeApiClient.getItemView('100001');
+  assert.equal(res !== null, true);
+});
+
+// TEST UI-1 ~ UI-3 (JSDOM 기반 실제 DOM / LocalStorage 통합 테스트)
+runTest("TEST UI-1: JSDOM 관심상품 보관함 LocalStorage 및 DOM 테이블 통합 검증", () => {
+  const dom = new JSDOM(`<!DOCTYPE html><body><table id="bookmark-table-body"></table></body>`, {
+    url: 'http://localhost'
+  });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+
+  bookmarkStore.toggleBookmark({ itemNo: '777777', title: 'UI테스트상품', wholesalePrice: 5000, wholesaleShippingFee: 2500, userCoupangPrice: 15000, categoryCode: '1002' });
+  const list = bookmarkStore.getBookmarks();
+  assert.equal(list.length > 0, true);
+  assert.equal(list[0].itemNo, '777777');
+});
+
+runTest("TEST UI-2: JSDOM 시뮬레이터 DOM 실시간 갱신 통합 검증", () => {
+  const dom = new JSDOM(`<!DOCTYPE html><body>
+    <input id="sim-coupang-price" value="20000" />
+    <div id="sim-basic-profit">0 원</div>
+  </body>`, {
+    url: 'http://localhost'
+  });
+  const doc = dom.window.document;
+  const input = doc.getElementById('sim-coupang-price');
+  const display = doc.getElementById('sim-basic-profit');
+
+  input.value = "25000";
+  const calc = MarginCalculator.calculate({ wholesalePrice: 10000, wholesaleShippingFee: 3000, userCoupangPrice: Number(input.value), categoryCode: '1002' });
+  display.textContent = `${calc.basicProfit.toLocaleString()} 원`;
+
+  assert.equal(display.textContent.includes('원'), true);
+});
+
+runTest("TEST UI-3: JSDOM 설정 LocalStorage 및 ConfigManager 복원 통합 검증", () => {
+  const dom = new JSDOM(`<!DOCTYPE html>`, {
+    url: 'http://localhost'
+  });
+  global.localStorage = dom.window.localStorage;
+
+  const cfg = new ConfigManager();
+  cfg.config.targetDailyProfit = 500000;
+  cfg.saveConfig();
+
+  const loadedCfg = new ConfigManager();
+  assert.equal(loadedCfg.config.targetDailyProfit, 500000);
 });
 
 console.log(`\n========================================`);

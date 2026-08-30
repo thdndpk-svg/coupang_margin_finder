@@ -1,7 +1,8 @@
 /**
- * STEP 2.1.3: 마진 계산 엔진 (calculator.js)
- * - 쿠팡 수수료 미확인(feeRate === null) 상태에서 0원 계산 절대 금지
- * - feeRate 미확인 시 isCalculable: false 및 basicProfit: null 반환
+ * STEP 2.1.4: 마진 계산 엔진 (calculator.js)
+ * - feeStatus, feeName, feeSource 반환 (Single Source of Truth)
+ * - 수수료 미확인 시 profitTier: null (DEFICIT 분류 금지)
+ * - calcBreakEvenPrice / calcTargetSellingPrice null 원가/배송비 보호
  */
 
 import { configManager } from './config.js';
@@ -45,6 +46,8 @@ export class MarginCalculator {
         wholesaleShippingFee,
         totalCost: (wholesalePrice !== null && wholesaleShippingFee !== null) ? wholesalePrice + wholesaleShippingFee : null,
         feeRate: null,
+        feeStatus: 'UNCONFIRMED',
+        feeName: '미확인',
         coupangFee: null,
         taxReserve: null,
         basicProfit: null,
@@ -55,16 +58,27 @@ export class MarginCalculator {
         roi: null,
         requiredDailySales: null,
         dailyRequiredQty: null,
-        profitTier: PROFIT_TIERS.DEFICIT,
+        profitTier: null, // 적자로 분류하지 않음!
         candidateTier: 'UNCONFIRMED',
         candidateTierName: '확인필요'
       };
     }
 
-    // 2. 쿠팡 수수료율 결정 (미확인 시 절대 0원으로 계산하지 않고 즉시 미계산 반환!)
-    const feeRate = (params.customFeeRate !== undefined && params.customFeeRate !== null)
-      ? Number(params.customFeeRate)
-      : (categoryCode ? configManager.getCategoryFeeRate(categoryCode) : null);
+    // 2. 쿠팡 수수료율 및 feeStatus 결정
+    let feeRate = null;
+    let feeStatus = 'UNCONFIRMED';
+    let feeName = '미확인';
+
+    if (params.customFeeRate !== undefined && params.customFeeRate !== null) {
+      feeRate = Number(params.customFeeRate);
+      feeStatus = 'USER_INPUT';
+      feeName = '사용자 직접입력';
+    } else if (categoryCode) {
+      const feeObj = configManager.getCategoryFeeObject(categoryCode);
+      feeRate = feeObj.rate;
+      feeStatus = feeObj.status;
+      feeName = feeObj.name;
+    }
 
     if (feeRate === null || feeRate === undefined) {
       return {
@@ -75,6 +89,8 @@ export class MarginCalculator {
         wholesaleShippingFee,
         totalCost: wholesalePrice + wholesaleShippingFee,
         feeRate: null,
+        feeStatus: 'UNCONFIRMED',
+        feeName: '미확인',
         coupangFee: null,
         taxReserve: null,
         basicProfit: null,
@@ -85,16 +101,15 @@ export class MarginCalculator {
         roi: null,
         requiredDailySales: null,
         dailyRequiredQty: null,
-        profitTier: PROFIT_TIERS.DEFICIT,
+        profitTier: null, // 절대 적자로 처리하지 않음!
         candidateTier: 'UNCONFIRMED',
         candidateTierName: '수수료확인필요'
       };
     }
 
-    // 수수료 계산
     const coupangFee = Math.round(coupangPrice * feeRate);
 
-    // 3. 총원가 (도매가 + 도매배송비)
+    // 3. 총원가
     let supplierShippingCost = wholesaleShippingFee;
     let customerShippingNetRevenue = 0;
 
@@ -112,10 +127,10 @@ export class MarginCalculator {
     // 5. 유상 비용
     const confirmedCosts = Number(params.customCosts || 0);
 
-    // 6. 기본 상품이익 (Basic Product Profit)
+    // 6. 기본 상품이익
     const basicProfit = coupangPrice + customerShippingNetRevenue - wholesalePrice - supplierShippingCost - coupangFee - taxReserve - confirmedCosts;
 
-    // 7. 보수 상품이익 (Conservative Product Profit)
+    // 7. 보수 상품이익
     const returnRate = (params.customReturnRate !== undefined && params.customReturnRate !== null)
       ? Number(params.customReturnRate)
       : (config.returnRate || 0);
@@ -140,12 +155,12 @@ export class MarginCalculator {
     const marginRate = coupangPrice > 0 ? (basicProfit / coupangPrice) * 100 : 0;
     const roi = totalCost > 0 ? (basicProfit / totalCost) * 100 : 0;
 
-    // 9. 하루 30만원 목표 달성 수량 (기본이익 <= 0 인 경우 null 유지)
+    // 9. 필요 수량
     const targetDailyProfit = config.targetDailyProfit || 300000;
     const requiredDailySales = basicProfit > 0 ? Math.ceil(targetDailyProfit / basicProfit) : null;
     const conservativeRequiredDailySales = conservativeProfit > 0 ? Math.ceil(targetDailyProfit / conservativeProfit) : null;
 
-    // 10. 수익성 등급 자동 분류
+    // 10. 수익성 등급
     const passThreshold = config.passProfitThreshold || 20000;
     const reviewThreshold = config.reviewProfitThreshold || 10000;
 
@@ -166,6 +181,8 @@ export class MarginCalculator {
       supplierShippingCost,
       totalCost,
       feeRate,
+      feeStatus,
+      feeName,
       coupangFee,
       taxReserve,
       confirmedCosts,
@@ -191,22 +208,28 @@ export class MarginCalculator {
   }
 
   static calcBreakEvenPrice({ wholesalePrice, wholesaleShippingFee, feeRate, taxRate = 0.015 }) {
+    if (wholesalePrice === null || wholesalePrice === undefined || wholesaleShippingFee === null || wholesaleShippingFee === undefined) {
+      return { value: null, status: '원가/배송비확인필요' };
+    }
     if (feeRate === undefined || feeRate === null) {
       return { value: null, status: '수수료확인필요' };
     }
 
-    const totalCost = Number(wholesalePrice || 0) + Number(wholesaleShippingFee || 0);
+    const totalCost = Number(wholesalePrice) + Number(wholesaleShippingFee);
     const denominator = 1 - feeRate - taxRate;
     if (denominator <= 0) return { value: null, status: '계산불가' };
     return { value: Math.ceil(totalCost / denominator), status: '확인됨' };
   }
 
   static calcTargetSellingPrice({ wholesalePrice, wholesaleShippingFee, targetProfit, feeRate, taxRate = 0.015 }) {
+    if (wholesalePrice === null || wholesalePrice === undefined || wholesaleShippingFee === null || wholesaleShippingFee === undefined) {
+      return { value: null, status: '원가/배송비확인필요' };
+    }
     if (feeRate === undefined || feeRate === null) {
       return { value: null, status: '수수료확인필요' };
     }
 
-    const totalCost = Number(wholesalePrice || 0) + Number(wholesaleShippingFee || 0);
+    const totalCost = Number(wholesalePrice) + Number(wholesaleShippingFee);
     const denominator = 1 - feeRate - taxRate;
     if (denominator <= 0) return { value: null, status: '계산불가' };
     return { value: Math.ceil((totalCost + Number(targetProfit || 0)) / denominator), status: '확인됨' };
